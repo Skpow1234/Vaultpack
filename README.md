@@ -7,10 +7,14 @@ One tool. One bundle. Encryption + integrity + authenticity.
 ## Quick Start
 
 ```bash
-# Encrypt a file (generates a key automatically)
+# Encrypt a file (generates a key automatically, default cipher: AES-256-GCM)
 vaultpack protect --in config.json
 
-# Decrypt it
+# Encrypt with ChaCha20-Poly1305 or XChaCha20-Poly1305
+vaultpack protect --in config.json --cipher chacha20-poly1305
+vaultpack protect --in config.json --cipher xchacha20-poly1305
+
+# Decrypt (cipher is auto-detected from the bundle)
 vaultpack decrypt --in config.json.vpack --out config.json --key config.json.key
 
 # Inspect the bundle metadata
@@ -76,6 +80,7 @@ vaultpack protect --in <file> [flags]
 | `--key-out`      | `<input>.key`    | Path to write the generated key            |
 | `--key`          |                  | Use an existing key (skips generation)     |
 | `--aad`          |                  | Additional authenticated data              |
+| `--cipher`       | `aes-256-gcm`    | AEAD cipher (see below)                    |
 | `--hash-algo`    | `sha256`         | Hash algorithm for plaintext integrity     |
 | `--sign`         |                  | Sign the bundle with Ed25519               |
 | `--signing-priv` |                  | Path to Ed25519 private key (with --sign)  |
@@ -84,7 +89,15 @@ vaultpack protect --in <file> [flags]
 
 The key file is base64-encoded, prefixed with `b64:`. Store it securely -- without it, the bundle cannot be decrypted.
 
-Encryption uses chunked AES-256-GCM (64 KB chunks) for constant-memory streaming of large files.
+Supported ciphers (all use 32-byte keys and chunked streaming with 64 KB chunks):
+
+| Cipher | Nonce | Notes |
+| --- | --- | --- |
+| `aes-256-gcm` (default) | 12 B | NIST standard, hardware-accelerated on most CPUs |
+| `chacha20-poly1305` | 12 B | Excellent software performance, constant-time |
+| `xchacha20-poly1305` | 24 B | Extended nonce eliminates nonce-reuse risk |
+
+Decryption auto-detects the cipher from the bundle manifest.
 
 ### `decrypt` -- Decrypt a `.vpack` bundle
 
@@ -165,7 +178,7 @@ artifact.vpack
 
 ## Security
 
-- **Encryption**: AES-256-GCM (AEAD) with random 12-byte nonces
+- **Encryption**: AES-256-GCM, ChaCha20-Poly1305, or XChaCha20-Poly1305 (AEAD) with random nonces
 - **Hashing**: SHA-256 (default), SHA-512, SHA3-256, SHA3-512, BLAKE2b-256, BLAKE2b-512, BLAKE3
 - **Signing**: Ed25519 detached signatures over canonical manifest + payload hash
 - **Key fingerprint**: SHA-256 of the raw key, stored in the manifest for early mismatch detection
