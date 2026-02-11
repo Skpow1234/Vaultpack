@@ -177,6 +177,56 @@ func TestDecryptCmd_RoundtripAllHashAlgos(t *testing.T) {
 	}
 }
 
+// TestDecryptCmd_RoundtripAllCiphers verifies protect→decrypt with each AEAD cipher.
+func TestDecryptCmd_RoundtripAllCiphers(t *testing.T) {
+	ciphers := []string{"aes-256-gcm", "chacha20-poly1305", "xchacha20-poly1305"}
+	for _, c := range ciphers {
+		t.Run(c, func(t *testing.T) {
+			dir := t.TempDir()
+			inFile := filepath.Join(dir, "data.bin")
+			bundleFile := filepath.Join(dir, "data.vpack")
+			keyFile := filepath.Join(dir, "data.key")
+			outFile := filepath.Join(dir, "recovered.bin")
+
+			original := []byte("round-trip with cipher " + c)
+			os.WriteFile(inFile, original, 0o600)
+
+			// Protect with specific cipher.
+			root := NewRootCmd()
+			root.SetArgs([]string{
+				"protect",
+				"--in", inFile,
+				"--out", bundleFile,
+				"--key-out", keyFile,
+				"--cipher", c,
+			})
+			if err := root.Execute(); err != nil {
+				t.Fatalf("protect: %v", err)
+			}
+
+			// Decrypt (cipher auto-detected from manifest).
+			root2 := NewRootCmd()
+			root2.SetArgs([]string{
+				"decrypt",
+				"--in", bundleFile,
+				"--out", outFile,
+				"--key", keyFile,
+			})
+			if err := root2.Execute(); err != nil {
+				t.Fatalf("decrypt: %v", err)
+			}
+
+			recovered, err := os.ReadFile(outFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(recovered) != string(original) {
+				t.Errorf("got %q, want %q", recovered, original)
+			}
+		})
+	}
+}
+
 func TestDecryptCmd_MissingFlags(t *testing.T) {
 	tests := []struct {
 		name string
