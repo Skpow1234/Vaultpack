@@ -1,0 +1,6 @@
+{
+  "algo": "sha256",
+  "digest_b64": "SRKaJ8Tbnx/pSmdMgM9i3+E/dPoSbE6Ku8GrMa+6Feo=",
+  "file": "testdata/fixtures/sample.txt",
+  "size": 16
+}
