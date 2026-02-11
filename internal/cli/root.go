@@ -50,6 +50,8 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newDecryptCmd())
 	root.AddCommand(newInspectCmd())
 	root.AddCommand(newKeygenCmd())
+	root.AddCommand(newSignCmd())
+	root.AddCommand(newVerifyCmd())
 
 	return root
 }

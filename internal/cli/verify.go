@@ -1,1 +1,89 @@
 package cli
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+
+	"github.com/Skpow1234/Vaultpack/internal/bundle"
+	"github.com/Skpow1234/Vaultpack/internal/crypto"
+	"github.com/Skpow1234/Vaultpack/internal/util"
+	"github.com/spf13/cobra"
+)
+
+func newVerifyCmd() *cobra.Command {
+	var (
+		inFile string
+		pubKey string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "verify",
+		Short: "Verify a .vpack bundle signature",
+		Long:  "Verify the Ed25519 detached signature of a .vpack bundle against the canonical manifest and payload hash.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			printer := NewPrinter(flagJSON, flagQuiet)
+
+			if inFile == "" {
+				return fmt.Errorf("--in is required")
+			}
+			if pubKey == "" {
+				return fmt.Errorf("--pubkey is required")
+			}
+
+			// Read the full bundle.
+			br, err := bundle.Read(inFile)
+			if err != nil {
+				return fmt.Errorf("read bundle: %w", err)
+			}
+
+			if br.Signature == nil {
+				printer.Error(util.ErrVerifyFailed, "bundle is not signed (no signature.sig)")
+				os.Exit(util.ExitVerifyFailed)
+				return nil
+			}
+
+			// Load public key.
+			pub, err := crypto.LoadPublicKey(pubKey)
+			if err != nil {
+				return fmt.Errorf("load public key: %w", err)
+			}
+
+			// Rebuild the signing message from the bundle contents.
+			canonical, err := bundle.CanonicalManifest(br.Manifest)
+			if err != nil {
+				return fmt.Errorf("canonicalize manifest: %w", err)
+			}
+
+			payloadHash, err := crypto.HashReader(bytes.NewReader(br.Ciphertext), "sha256")
+			if err != nil {
+				return fmt.Errorf("hash payload: %w", err)
+			}
+
+			sigMsg := crypto.BuildSigningMessage(canonical, payloadHash)
+
+			if !crypto.Verify(pub, sigMsg, br.Signature) {
+				printer.Error(util.ErrVerifyFailed, "signature verification failed")
+				os.Exit(util.ExitVerifyFailed)
+				return nil
+			}
+
+			switch printer.Mode {
+			case OutputJSON:
+				return printer.JSON(map[string]any{
+					"bundle":   inFile,
+					"verified": true,
+				})
+			default:
+				printer.Human("Verified: %s", inFile)
+				printer.Human("Signature is valid.")
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&inFile, "in", "", "input .vpack bundle to verify (required)")
+	cmd.Flags().StringVar(&pubKey, "pubkey", "", "path to Ed25519 public key (required)")
+
+	return cmd
+}
