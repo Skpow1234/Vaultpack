@@ -25,13 +25,23 @@ vaultpack decrypt --in config.json.vpack --out config.json --key config.json.key
 # Decrypt a password-protected bundle
 vaultpack decrypt --in config.json.vpack --out config.json --password "my-secret-passphrase"
 
+# Compress before encrypting (gzip or zstd)
+vaultpack protect --in large.csv --compress zstd
+vaultpack protect --in archive.tar --compress gzip
+
 # Encrypt for a recipient's public key (hybrid encryption)
 vaultpack keygen --out alice --algo x25519-aes-256-gcm
 vaultpack protect --in config.json --recipient alice.pub
 vaultpack decrypt --in config.json.vpack --out config.json --privkey alice.key
 
+# Encrypt for multiple recipients
+vaultpack protect --in config.json --recipient alice.pub --recipient bob.pub
+
 # Inspect the bundle metadata
 vaultpack inspect --in config.json.vpack
+
+# Verify end-to-end integrity (decrypt + re-hash + compare)
+vaultpack verify-integrity --in config.json.vpack --key config.json.key
 
 # Hash a file (default: SHA-256; also supports sha512, sha3-256, sha3-512, blake2b-256, blake2b-512, blake3)
 vaultpack hash --in export.csv
@@ -90,28 +100,31 @@ docker run --rm -v "$PWD:/work" vaultpack protect --in /work/config.json
 vaultpack protect --in <file> [flags]
 ```
 
-| Flag             | Default          | Description                                |
-| ---------------- | ---------------- | ------------------------------------------ |
-| `--in`           | (required)       | Input file to encrypt                      |
-| `--out`          | `<input>.vpack`  | Output bundle path                         |
-| `--key-out`      | `<input>.key`    | Path to write the generated key            |
-| `--key`          |                  | Use an existing key (skips generation)     |
-| `--aad`          |                  | Additional authenticated data              |
-| `--cipher`       | `aes-256-gcm`    | AEAD cipher (see below)                    |
-| `--hash-algo`    | `sha256`         | Hash algorithm for plaintext integrity     |
-| `--sign`         |                  | Sign the bundle (algo auto-detected)       |
-| `--signing-priv` |                  | Path to private signing key (with --sign)  |
-| `--sign-algo`    |                  | Override signing algorithm (auto-detected) |
-| `--password`     |                  | Encrypt with a password (instead of key)   |
-| `--password-file`|                  | Read password from file                    |
-| `--kdf`          | `argon2id`       | KDF: `argon2id`, `scrypt`, `pbkdf2-sha256` |
-| `--kdf-time`     | `3`              | Argon2id time parameter                    |
-| `--kdf-memory`   | `65536`          | Argon2id memory in KiB (64 MB default)     |
-| `--recipient`    |                  | Recipient PEM public key (hybrid encrypt)  |
-| `--stdin`        |                  | Read plaintext from standard input         |
-| `--stdout`       |                  | Write bundle to standard output            |
+| Flag             | Default          | Description                                        |
+| ---------------- | ---------------- | -------------------------------------------------- |
+| `--in`           | (required)       | Input file to encrypt                              |
+| `--out`          | `<input>.vpack`  | Output bundle path                                 |
+| `--key-out`      | `<input>.key`    | Path to write the generated key                    |
+| `--key`          |                  | Use an existing key (skips generation)             |
+| `--aad`          |                  | Additional authenticated data                      |
+| `--cipher`       | `aes-256-gcm`    | AEAD cipher (see below)                            |
+| `--hash-algo`    | `sha256`         | Hash algorithm for plaintext integrity             |
+| `--sign`         |                  | Sign the bundle (algo auto-detected)               |
+| `--signing-priv` |                  | Path to private signing key (with --sign)          |
+| `--sign-algo`    |                  | Override signing algorithm (auto-detected)         |
+| `--password`     |                  | Encrypt with a password (instead of key)           |
+| `--password-file`|                  | Read password from file                            |
+| `--kdf`          | `argon2id`       | KDF: `argon2id`, `scrypt`, `pbkdf2-sha256`         |
+| `--kdf-time`     | `3`              | Argon2id time parameter                            |
+| `--kdf-memory`   | `65536`          | Argon2id memory in KiB (64 MB default)             |
+| `--recipient`    |                  | Recipient PEM public key (hybrid, repeatable)      |
+| `--compress`     | `none`           | Pre-encryption compression: `none`, `gzip`, `zstd` |
+| `--stdin`        |                  | Read plaintext from standard input                 |
+| `--stdout`       |                  | Write bundle to standard output                    |
 
 When using `--password`, no key file is generated -- the key is derived from your password using the selected KDF. When using a key file, it is base64-encoded with a `b64:` prefix. Store either securely.
+
+Multiple `--recipient` flags enable multi-recipient encryption: one random DEK is generated and wrapped separately for each recipient. Each recipient can decrypt independently with their own private key.
 
 Supported ciphers (all use 32-byte keys and chunked streaming with 64 KB chunks):
 
@@ -222,6 +235,16 @@ vaultpack verify --in <bundle> --pubkey <public-key>
 
 Exits with code `0` if valid, `10` if verification fails.
 
+### `verify-integrity` -- Decrypt and verify plaintext hash
+
+```bash
+vaultpack verify-integrity --in <bundle> --key <keyfile>
+vaultpack verify-integrity --in <bundle> --password "pass"
+vaultpack verify-integrity --in <bundle> --privkey recipient.key
+```
+
+Decrypts the bundle, re-hashes the recovered plaintext, and compares it with the `plaintext_hash` in the manifest. This confirms end-to-end integrity: the decrypted content matches what was originally protected. Exits `0` on match, `10` on mismatch.
+
 ### Global Flags
 
 | Flag        | Description                  |
@@ -246,9 +269,13 @@ artifact.vpack
 
 - **Encryption**: AES-256-GCM, ChaCha20-Poly1305, or XChaCha20-Poly1305 (AEAD) with random nonces
 - **Hashing**: SHA-256 (default), SHA-512, SHA3-256, SHA3-512, BLAKE2b-256, BLAKE2b-512, BLAKE3
-- **Signing**: Ed25519, ECDSA (P-256/P-384), RSA-PSS (2048/4096) -- detached signatures over canonical manifest + payload hash
+- **Signing**: Ed25519, ECDSA (P-256/P-384), RSA-PSS (2048/4096) -- detached signatures with RFC 3339 timestamps
 - **Key Derivation**: Argon2id (default, t=3, m=64MB, p=4), scrypt (N=32768, r=8, p=1), PBKDF2-SHA256 (600k iterations)
 - **Hybrid Encryption**: X25519+HKDF+AES-256-GCM, ECIES-P256, RSA-OAEP-SHA256 (2048/4096)
+- **Multi-recipient**: Encrypt once for multiple recipients; each gets an independently wrapped DEK
+- **Compression**: Optional pre-encryption gzip or zstd compression to reduce bundle size
+- **Integrity**: `verify-integrity` command decrypts and re-hashes to confirm end-to-end plaintext integrity
+- **Manifest versioning**: v1 for basic bundles, v2 for compression and multi-recipient features (backward-compatible)
 - **Key fingerprint**: SHA-256 of the derived/raw key, stored in the manifest for early mismatch detection
 - Ephemeral keys ensure forward secrecy for ECDH-based hybrid schemes
 - Passwords, keys, and private keys are never stored inside the bundle

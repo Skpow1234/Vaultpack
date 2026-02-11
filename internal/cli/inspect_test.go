@@ -72,8 +72,8 @@ func TestInspectCmd_JSONStructure(t *testing.T) {
 		t.Fatalf("manifest is not valid JSON: %v", err)
 	}
 
-	if m.Version != bundle.ManifestVersion {
-		t.Errorf("version: %q", m.Version)
+	if !bundle.IsSupportedManifestVersion(m.Version) {
+		t.Errorf("unsupported version: %q", m.Version)
 	}
 	if m.Input.Name != "input.txt" {
 		t.Errorf("input name: %q", m.Input.Name)
