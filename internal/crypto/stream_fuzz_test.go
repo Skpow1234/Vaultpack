@@ -14,11 +14,10 @@ func FuzzStreamEncryptDecryptRoundTrip(f *testing.F) {
 	f.Add([]byte("a"), 1, []byte{})
 
 	f.Fuzz(func(t *testing.T, plaintext []byte, chunkSize int, aad []byte) {
-		// Constrain chunk size to something reasonable.
 		if chunkSize < 1 {
 			chunkSize = 1
 		}
-		if chunkSize > 1<<20 { // 1 MB cap for fuzz.
+		if chunkSize > 1<<20 {
 			chunkSize = 1 << 20
 		}
 
@@ -28,13 +27,13 @@ func FuzzStreamEncryptDecryptRoundTrip(f *testing.F) {
 		}
 
 		var cipherBuf bytes.Buffer
-		result, err := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key, aad, chunkSize)
+		result, err := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key, aad, chunkSize, CipherAES256GCM)
 		if err != nil {
 			t.Fatalf("encrypt: %v", err)
 		}
 
 		var plainBuf bytes.Buffer
-		err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plainBuf, key, result.BaseNonce, aad, chunkSize)
+		err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plainBuf, key, result.BaseNonce, aad, chunkSize, CipherAES256GCM)
 		if err != nil {
 			t.Fatalf("decrypt: %v", err)
 		}
@@ -68,6 +67,6 @@ func FuzzDecryptStreamCorrupted(f *testing.F) {
 
 		var plainBuf bytes.Buffer
 		// Must not panic.
-		_ = DecryptStream(bytes.NewReader(ciphertext), &plainBuf, key, nonce, aad, chunkSize)
+		_ = DecryptStream(bytes.NewReader(ciphertext), &plainBuf, key, nonce, aad, chunkSize, CipherAES256GCM)
 	})
 }

@@ -66,6 +66,7 @@ func runProtectMenu(cmd *cobra.Command) error {
 		keyOutFile  string
 		aad         string
 		hashAlg     string
+		cipherAlg   string
 		wantSign    bool
 		signingPriv string
 	)
@@ -84,6 +85,14 @@ func runProtectMenu(cmd *cobra.Command) error {
 				Title("Key output path (leave blank for default)").
 				Placeholder("<input>.key").
 				Value(&keyOutFile),
+			huh.NewSelect[string]().
+				Title("Encryption cipher").
+				Options(
+					huh.NewOption("AES-256-GCM (default)", "aes-256-gcm"),
+					huh.NewOption("ChaCha20-Poly1305", "chacha20-poly1305"),
+					huh.NewOption("XChaCha20-Poly1305 (24-byte nonce)", "xchacha20-poly1305"),
+				).
+				Value(&cipherAlg),
 			huh.NewSelect[string]().
 				Title("Hash algorithm for plaintext").
 				Options(
@@ -121,7 +130,7 @@ func runProtectMenu(cmd *cobra.Command) error {
 	}
 
 	// Build args.
-	args := []string{"protect", "--in", inFile, "--hash-algo", hashAlg}
+	args := []string{"protect", "--in", inFile, "--hash-algo", hashAlg, "--cipher", cipherAlg}
 	if outFile != "" {
 		args = append(args, "--out", outFile)
 	}

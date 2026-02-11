@@ -10,8 +10,6 @@ import (
 )
 
 const (
-	// AES256KeySize is the required key size for AES-256 in bytes.
-	AES256KeySize = 32
 	// KeyFilePrefix is the optional prefix for key files.
 	KeyFilePrefix = "b64:"
 )

@@ -1,8 +1,6 @@
 package crypto
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -19,37 +17,36 @@ const (
 
 // StreamEncryptResult holds metadata from a streaming encryption operation.
 type StreamEncryptResult struct {
-	BaseNonce      []byte // 12-byte base nonce
-	LastTag        []byte // 16-byte tag of the final chunk
+	BaseNonce      []byte // nonce (size depends on cipher)
+	LastTag        []byte // tag of the final chunk
 	CiphertextSize int64  // total bytes written (ciphertext + tags)
 }
 
-// EncryptStream reads plaintext from r in chunks, encrypts each chunk with AES-256-GCM
-// using a derived nonce, and writes the ciphertext+tag to w.
+// EncryptStream reads plaintext from r in chunks, encrypts each chunk with the
+// named AEAD cipher using a derived nonce, and writes the ciphertext+tag to w.
 //
-// Nonce derivation: baseNonce XOR (8-byte big-endian chunk index, left-padded with 4 zero bytes).
+// Nonce derivation: baseNonce XOR (8-byte big-endian chunk index, right-aligned).
 // The final chunk has bit 63 set on the counter to prevent truncation attacks.
-func EncryptStream(r io.Reader, w io.Writer, key, aad []byte, chunkSize int) (*StreamEncryptResult, error) {
-	if len(key) != AES256KeySize {
-		return nil, fmt.Errorf("%w: got %d bytes", util.ErrInvalidKeyLength, len(key))
+func EncryptStream(r io.Reader, w io.Writer, key, aad []byte, chunkSize int, cipherName string) (*StreamEncryptResult, error) {
+	if cipherName == "" {
+		cipherName = CipherAES256GCM // backward compat default
 	}
+
+	aead, err := NewAEAD(cipherName, key)
+	if err != nil {
+		return nil, fmt.Errorf("create aead: %w", err)
+	}
+
 	if chunkSize <= 0 {
 		chunkSize = DefaultChunkSize
 	}
 
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, fmt.Errorf("aes cipher: %w", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("gcm: %w", err)
-	}
-
-	baseNonce, err := GenerateNonce(gcm.NonceSize())
+	baseNonce, err := GenerateNonce(aead.NonceSize())
 	if err != nil {
 		return nil, err
 	}
+
+	tagSize := aead.Overhead()
 
 	buf := make([]byte, chunkSize)
 	var (
@@ -64,17 +61,16 @@ func EncryptStream(r io.Reader, w io.Writer, key, aad []byte, chunkSize int) (*S
 		n, readErr := io.ReadFull(r, buf)
 
 		if pendingHasData {
-			// Encrypt the previous chunk (it's not the last one since we got more data or need to check).
 			if n > 0 || readErr == nil {
 				// Previous chunk is NOT the last.
 				nonce := deriveNonce(baseNonce, chunkIdx)
-				sealed := gcm.Seal(nil, nonce, pendingData, aad)
+				sealed := aead.Seal(nil, nonce, pendingData, aad)
 				written, wErr := w.Write(sealed)
 				if wErr != nil {
 					return nil, fmt.Errorf("write chunk %d: %w", chunkIdx, wErr)
 				}
 				totalWritten += int64(written)
-				lastTag = sealed[len(sealed)-GCMTagSize:]
+				lastTag = sealed[len(sealed)-tagSize:]
 				chunkIdx++
 			}
 		}
@@ -96,23 +92,23 @@ func EncryptStream(r io.Reader, w io.Writer, key, aad []byte, chunkSize int) (*S
 	// Encrypt the final chunk with the last-chunk flag.
 	if pendingHasData {
 		nonce := deriveNonce(baseNonce, chunkIdx|lastChunkFlag)
-		sealed := gcm.Seal(nil, nonce, pendingData, aad)
+		sealed := aead.Seal(nil, nonce, pendingData, aad)
 		written, wErr := w.Write(sealed)
 		if wErr != nil {
 			return nil, fmt.Errorf("write final chunk: %w", wErr)
 		}
 		totalWritten += int64(written)
-		lastTag = sealed[len(sealed)-GCMTagSize:]
+		lastTag = sealed[len(sealed)-tagSize:]
 	} else {
 		// Empty input: encrypt an empty final chunk.
 		nonce := deriveNonce(baseNonce, lastChunkFlag)
-		sealed := gcm.Seal(nil, nonce, nil, aad)
+		sealed := aead.Seal(nil, nonce, nil, aad)
 		written, wErr := w.Write(sealed)
 		if wErr != nil {
 			return nil, fmt.Errorf("write empty final chunk: %w", wErr)
 		}
 		totalWritten += int64(written)
-		lastTag = sealed[len(sealed)-GCMTagSize:]
+		lastTag = sealed[len(sealed)-tagSize:]
 	}
 
 	return &StreamEncryptResult{
@@ -123,34 +119,30 @@ func EncryptStream(r io.Reader, w io.Writer, key, aad []byte, chunkSize int) (*S
 }
 
 // DecryptStream reads chunked ciphertext from r, decrypts each chunk, and writes
-// plaintext to w. chunkSize is the original plaintext chunk size (each encrypted
-// chunk is chunkSize + GCMTagSize bytes, except the last which may be smaller).
-func DecryptStream(r io.Reader, w io.Writer, key, baseNonce, aad []byte, chunkSize int) error {
-	if len(key) != AES256KeySize {
-		return fmt.Errorf("%w: got %d bytes", util.ErrInvalidKeyLength, len(key))
+// plaintext to w. chunkSize is the original plaintext chunk size.
+func DecryptStream(r io.Reader, w io.Writer, key, baseNonce, aad []byte, chunkSize int, cipherName string) error {
+	if cipherName == "" {
+		cipherName = CipherAES256GCM
 	}
-	if len(baseNonce) != GCMNonceSize {
-		return fmt.Errorf("%w: got %d bytes", util.ErrInvalidNonceLength, len(baseNonce))
+
+	aead, err := NewAEAD(cipherName, key)
+	if err != nil {
+		return fmt.Errorf("create aead: %w", err)
+	}
+
+	if len(baseNonce) != aead.NonceSize() {
+		return fmt.Errorf("%w: got %d bytes, want %d", util.ErrInvalidNonceLength, len(baseNonce), aead.NonceSize())
 	}
 	if chunkSize <= 0 {
 		chunkSize = DefaultChunkSize
 	}
 
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return fmt.Errorf("aes cipher: %w", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return fmt.Errorf("gcm: %w", err)
-	}
-
-	encChunkSize := chunkSize + GCMTagSize
+	tagSize := aead.Overhead()
+	encChunkSize := chunkSize + tagSize
 	buf := make([]byte, encChunkSize)
 	var chunkIdx uint64
 
-	// We need lookahead to detect the final chunk.
-	// Read the first chunk.
+	// Read the first chunk (lookahead to detect final chunk).
 	currentN, currentErr := io.ReadFull(r, buf)
 	if currentN == 0 && (currentErr == io.EOF || currentErr == io.ErrUnexpectedEOF) {
 		return fmt.Errorf("%w: empty ciphertext", util.ErrDecryptFailed)
@@ -172,7 +164,7 @@ func DecryptStream(r io.Reader, w io.Writer, key, baseNonce, aad []byte, chunkSi
 			nonce = deriveNonce(baseNonce, chunkIdx)
 		}
 
-		plaintext, err := gcm.Open(nil, nonce, currentData, aad)
+		plaintext, err := aead.Open(nil, nonce, currentData, aad)
 		if err != nil {
 			return fmt.Errorf("%w: chunk %d: %v", util.ErrDecryptFailed, chunkIdx, err)
 		}
@@ -198,14 +190,17 @@ func DecryptStream(r io.Reader, w io.Writer, key, baseNonce, aad []byte, chunkSi
 }
 
 // deriveNonce XORs a counter into the last 8 bytes of the base nonce.
+// Works with any nonce size >= 8.
 func deriveNonce(baseNonce []byte, counter uint64) []byte {
-	nonce := make([]byte, GCMNonceSize)
+	nonceSize := len(baseNonce)
+	nonce := make([]byte, nonceSize)
 	copy(nonce, baseNonce)
-	// XOR counter into bytes 4..11 (last 8 bytes).
+	// XOR counter into the last 8 bytes.
 	var counterBytes [8]byte
 	binary.BigEndian.PutUint64(counterBytes[:], counter)
+	offset := nonceSize - 8
 	for i := 0; i < 8; i++ {
-		nonce[4+i] ^= counterBytes[i]
+		nonce[offset+i] ^= counterBytes[i]
 	}
 	return nonce
 }

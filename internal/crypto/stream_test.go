@@ -11,7 +11,7 @@ func TestStreamEncryptDecryptRoundTrip(t *testing.T) {
 	key, _ := GenerateKey(AES256KeySize)
 
 	var cipherBuf bytes.Buffer
-	result, err := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key, nil, DefaultChunkSize)
+	result, err := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key, nil, DefaultChunkSize, CipherAES256GCM)
 	if err != nil {
 		t.Fatalf("encrypt: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestStreamEncryptDecryptRoundTrip(t *testing.T) {
 	}
 
 	var plaintextBuf bytes.Buffer
-	err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plaintextBuf, key, result.BaseNonce, nil, DefaultChunkSize)
+	err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plaintextBuf, key, result.BaseNonce, nil, DefaultChunkSize, CipherAES256GCM)
 	if err != nil {
 		t.Fatalf("decrypt: %v", err)
 	}
@@ -41,13 +41,13 @@ func TestStreamEncryptDecryptEmpty(t *testing.T) {
 	key, _ := GenerateKey(AES256KeySize)
 
 	var cipherBuf bytes.Buffer
-	result, err := EncryptStream(bytes.NewReader(nil), &cipherBuf, key, nil, DefaultChunkSize)
+	result, err := EncryptStream(bytes.NewReader(nil), &cipherBuf, key, nil, DefaultChunkSize, CipherAES256GCM)
 	if err != nil {
 		t.Fatalf("encrypt empty: %v", err)
 	}
 
 	var plaintextBuf bytes.Buffer
-	err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plaintextBuf, key, result.BaseNonce, nil, DefaultChunkSize)
+	err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plaintextBuf, key, result.BaseNonce, nil, DefaultChunkSize, CipherAES256GCM)
 	if err != nil {
 		t.Fatalf("decrypt empty: %v", err)
 	}
@@ -63,14 +63,14 @@ func TestStreamEncryptDecryptWithAAD(t *testing.T) {
 	aad := []byte("env=prod")
 
 	var cipherBuf bytes.Buffer
-	result, err := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key, aad, DefaultChunkSize)
+	result, err := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key, aad, DefaultChunkSize, CipherAES256GCM)
 	if err != nil {
 		t.Fatalf("encrypt: %v", err)
 	}
 
 	// Correct AAD.
 	var plaintextBuf bytes.Buffer
-	err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plaintextBuf, key, result.BaseNonce, aad, DefaultChunkSize)
+	err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plaintextBuf, key, result.BaseNonce, aad, DefaultChunkSize, CipherAES256GCM)
 	if err != nil {
 		t.Fatalf("decrypt: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestStreamEncryptDecryptWithAAD(t *testing.T) {
 
 	// Wrong AAD.
 	var badBuf bytes.Buffer
-	err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &badBuf, key, result.BaseNonce, []byte("wrong"), DefaultChunkSize)
+	err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &badBuf, key, result.BaseNonce, []byte("wrong"), DefaultChunkSize, CipherAES256GCM)
 	if err == nil {
 		t.Fatal("expected error with wrong AAD")
 	}
@@ -92,17 +92,16 @@ func TestStreamEncryptDecryptWrongKey(t *testing.T) {
 	key2, _ := GenerateKey(AES256KeySize)
 
 	var cipherBuf bytes.Buffer
-	result, _ := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key1, nil, DefaultChunkSize)
+	result, _ := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key1, nil, DefaultChunkSize, CipherAES256GCM)
 
 	var plaintextBuf bytes.Buffer
-	err := DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plaintextBuf, key2, result.BaseNonce, nil, DefaultChunkSize)
+	err := DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plaintextBuf, key2, result.BaseNonce, nil, DefaultChunkSize, CipherAES256GCM)
 	if err == nil {
 		t.Fatal("expected error with wrong key")
 	}
 }
 
 func TestStreamMultipleChunks(t *testing.T) {
-	// Create data larger than one chunk.
 	chunkSize := 1024
 	plaintext := make([]byte, chunkSize*3+500) // 3.5 chunks
 	rand.Read(plaintext)
@@ -110,19 +109,18 @@ func TestStreamMultipleChunks(t *testing.T) {
 	key, _ := GenerateKey(AES256KeySize)
 
 	var cipherBuf bytes.Buffer
-	result, err := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key, nil, chunkSize)
+	result, err := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key, nil, chunkSize, CipherAES256GCM)
 	if err != nil {
 		t.Fatalf("encrypt: %v", err)
 	}
 
-	// Ciphertext should be larger than plaintext (tag overhead per chunk).
-	expectedMinSize := int64(len(plaintext) + 4*GCMTagSize) // 4 chunks
+	expectedMinSize := int64(len(plaintext) + 4*GCMTagSize)
 	if result.CiphertextSize < expectedMinSize {
 		t.Errorf("ciphertext too small: %d < %d", result.CiphertextSize, expectedMinSize)
 	}
 
 	var plaintextBuf bytes.Buffer
-	err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plaintextBuf, key, result.BaseNonce, nil, chunkSize)
+	err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plaintextBuf, key, result.BaseNonce, nil, chunkSize, CipherAES256GCM)
 	if err != nil {
 		t.Fatalf("decrypt: %v", err)
 	}
@@ -133,21 +131,20 @@ func TestStreamMultipleChunks(t *testing.T) {
 }
 
 func TestStreamExactChunkBoundary(t *testing.T) {
-	// Data exactly at chunk boundary.
 	chunkSize := 256
-	plaintext := make([]byte, chunkSize*2) // exactly 2 chunks
+	plaintext := make([]byte, chunkSize*2)
 	rand.Read(plaintext)
 
 	key, _ := GenerateKey(AES256KeySize)
 
 	var cipherBuf bytes.Buffer
-	result, err := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key, nil, chunkSize)
+	result, err := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key, nil, chunkSize, CipherAES256GCM)
 	if err != nil {
 		t.Fatalf("encrypt: %v", err)
 	}
 
 	var plaintextBuf bytes.Buffer
-	err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plaintextBuf, key, result.BaseNonce, nil, chunkSize)
+	err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plaintextBuf, key, result.BaseNonce, nil, chunkSize, CipherAES256GCM)
 	if err != nil {
 		t.Fatalf("decrypt: %v", err)
 	}
@@ -158,18 +155,17 @@ func TestStreamExactChunkBoundary(t *testing.T) {
 }
 
 func TestStreamSingleByteChunks(t *testing.T) {
-	// Extreme case: 1-byte chunks.
 	plaintext := []byte("abcde")
 	key, _ := GenerateKey(AES256KeySize)
 
 	var cipherBuf bytes.Buffer
-	result, err := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key, nil, 1)
+	result, err := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key, nil, 1, CipherAES256GCM)
 	if err != nil {
 		t.Fatalf("encrypt: %v", err)
 	}
 
 	var plaintextBuf bytes.Buffer
-	err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plaintextBuf, key, result.BaseNonce, nil, 1)
+	err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plaintextBuf, key, result.BaseNonce, nil, 1, CipherAES256GCM)
 	if err != nil {
 		t.Fatalf("decrypt: %v", err)
 	}
@@ -180,7 +176,6 @@ func TestStreamSingleByteChunks(t *testing.T) {
 }
 
 func TestStreamTruncationDetection(t *testing.T) {
-	// Encrypt multi-chunk data, then truncate the ciphertext.
 	chunkSize := 64
 	plaintext := make([]byte, chunkSize*3)
 	rand.Read(plaintext)
@@ -188,15 +183,65 @@ func TestStreamTruncationDetection(t *testing.T) {
 	key, _ := GenerateKey(AES256KeySize)
 
 	var cipherBuf bytes.Buffer
-	result, _ := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key, nil, chunkSize)
+	result, _ := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key, nil, chunkSize, CipherAES256GCM)
 
-	// Truncate: remove the last chunk.
 	fullCiphertext := cipherBuf.Bytes()
 	truncated := fullCiphertext[:len(fullCiphertext)-(chunkSize+GCMTagSize)]
 
 	var plaintextBuf bytes.Buffer
-	err := DecryptStream(bytes.NewReader(truncated), &plaintextBuf, key, result.BaseNonce, nil, chunkSize)
+	err := DecryptStream(bytes.NewReader(truncated), &plaintextBuf, key, result.BaseNonce, nil, chunkSize, CipherAES256GCM)
 	if err == nil {
 		t.Fatal("expected error for truncated ciphertext (last-chunk flag mismatch)")
+	}
+}
+
+// TestStreamAllCiphersRoundTrip verifies streaming round-trip for each supported cipher.
+func TestStreamAllCiphersRoundTrip(t *testing.T) {
+	for _, cipherName := range SupportedCiphers {
+		t.Run(cipherName, func(t *testing.T) {
+			plaintext := []byte("round-trip test for " + cipherName)
+			key, _ := GenerateKey(AES256KeySize)
+
+			var cipherBuf bytes.Buffer
+			result, err := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key, nil, 64, cipherName)
+			if err != nil {
+				t.Fatalf("encrypt: %v", err)
+			}
+
+			info, _ := GetCipherInfo(cipherName)
+			if len(result.BaseNonce) != info.NonceSize {
+				t.Errorf("nonce size: got %d, want %d", len(result.BaseNonce), info.NonceSize)
+			}
+
+			var plaintextBuf bytes.Buffer
+			err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plaintextBuf, key, result.BaseNonce, nil, 64, cipherName)
+			if err != nil {
+				t.Fatalf("decrypt: %v", err)
+			}
+
+			if !bytes.Equal(plaintextBuf.Bytes(), plaintext) {
+				t.Errorf("got %q, want %q", plaintextBuf.String(), string(plaintext))
+			}
+		})
+	}
+}
+
+// TestStreamCrossCipherRejection verifies that ciphertext from one cipher
+// cannot be decrypted with a different cipher.
+func TestStreamCrossCipherRejection(t *testing.T) {
+	plaintext := []byte("cross-cipher rejection test")
+	key, _ := GenerateKey(AES256KeySize)
+
+	var cipherBuf bytes.Buffer
+	result, err := EncryptStream(bytes.NewReader(plaintext), &cipherBuf, key, nil, DefaultChunkSize, CipherAES256GCM)
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+
+	// Try to decrypt with ChaCha20-Poly1305 — same nonce size, should fail at auth.
+	var plaintextBuf bytes.Buffer
+	err = DecryptStream(bytes.NewReader(cipherBuf.Bytes()), &plaintextBuf, key, result.BaseNonce, nil, DefaultChunkSize, CipherChaCha20Poly1305)
+	if err == nil {
+		t.Fatal("expected decryption failure with wrong cipher")
 	}
 }

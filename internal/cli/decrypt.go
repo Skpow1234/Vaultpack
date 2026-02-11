@@ -76,6 +76,9 @@ func newDecryptCmd() *cobra.Command {
 
 			var plaintext []byte
 
+			// Auto-detect cipher from manifest.
+			cipherName := br.Manifest.Encryption.AEAD
+
 			if br.Manifest.Encryption.IsChunked() {
 				// Chunked streaming decryption.
 				baseNonce, err := util.B64Decode(br.Manifest.Encryption.NonceB64)
@@ -89,6 +92,7 @@ func newDecryptCmd() *cobra.Command {
 					&plaintextBuf,
 					key, baseNonce, aad,
 					*br.Manifest.Encryption.ChunkSize,
+					cipherName,
 				)
 				if err != nil {
 					printer.Error(err, "decryption failed")
@@ -107,7 +111,7 @@ func newDecryptCmd() *cobra.Command {
 					return fmt.Errorf("decode tag: %w", err)
 				}
 
-				plaintext, err = crypto.DecryptAESGCM(br.Ciphertext, key, nonce, tag, aad)
+				plaintext, err = crypto.DecryptAEAD(cipherName, br.Ciphertext, key, nonce, tag, aad)
 				if err != nil {
 					printer.Error(err, "decryption failed")
 					os.Exit(util.ExitDecryptFailed)

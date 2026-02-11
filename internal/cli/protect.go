@@ -22,6 +22,7 @@ func newProtectCmd() *cobra.Command {
 		keyFile     string
 		aadStr      string
 		hashAlgo    string
+		cipherName  string
 		signFlag    bool
 		signingPriv string
 		useStdin    bool
@@ -46,6 +47,9 @@ func newProtectCmd() *cobra.Command {
 			}
 			if !crypto.SupportedHashAlgo(hashAlgo) {
 				return fmt.Errorf("unsupported hash algorithm %q; supported: sha256, sha512, sha3-256, sha3-512, blake2b-256, blake2b-512, blake3", hashAlgo)
+			}
+			if !crypto.SupportedCipher(cipherName) {
+				return fmt.Errorf("unsupported cipher %q; supported: aes-256-gcm, chacha20-poly1305, xchacha20-poly1305", cipherName)
 			}
 
 			// Determine input source.
@@ -131,7 +135,7 @@ func newProtectCmd() *cobra.Command {
 			// Encrypt using chunked streaming.
 			var ciphertextBuf bytes.Buffer
 			streamResult, err := crypto.EncryptStream(
-				&plaintextBuf, &ciphertextBuf, key, aad, crypto.DefaultChunkSize,
+				&plaintextBuf, &ciphertextBuf, key, aad, crypto.DefaultChunkSize, cipherName,
 			)
 			if err != nil {
 				return fmt.Errorf("encrypt: %w", err)
@@ -160,7 +164,7 @@ func newProtectCmd() *cobra.Command {
 					DigestB64: util.B64Encode(digest),
 				},
 				Encryption: bundle.EncryptionMeta{
-					AEAD:      "aes-256-gcm",
+					AEAD:      cipherName,
 					NonceB64:  util.B64Encode(streamResult.BaseNonce),
 					TagB64:    util.B64Encode(streamResult.LastTag),
 					AADB64:    aadB64,
@@ -245,7 +249,7 @@ func newProtectCmd() *cobra.Command {
 					"key_file":    keyOutFile,
 					"input":       inputName,
 					"input_size":  inputSize,
-					"algo":        "aes-256-gcm",
+					"cipher":      cipherName,
 					"hash_algo":   hashAlgo,
 					"hash_digest": util.B64Encode(digest),
 					"signed":      signed,
@@ -258,7 +262,7 @@ func newProtectCmd() *cobra.Command {
 				if keyOutFile != "" {
 					printer.Human("Key:       %s", keyOutFile)
 				}
-				printer.Human("Algo:      aes-256-gcm (chunked, %d byte chunks)", chunkSize)
+				printer.Human("Cipher:    %s (chunked, %d byte chunks)", cipherName, chunkSize)
 				printer.Human("Hash:      %s:%s", hashAlgo, util.B64Encode(digest))
 				if signed {
 					printer.Human("Signed:    yes (ed25519)")
@@ -274,6 +278,7 @@ func newProtectCmd() *cobra.Command {
 	cmd.Flags().StringVar(&keyFile, "key", "", "path to an existing key (skips key generation)")
 	cmd.Flags().StringVar(&aadStr, "aad", "", "additional authenticated data (e.g. 'env=prod,app=payments')")
 	cmd.Flags().StringVar(&hashAlgo, "hash-algo", "sha256", "hash algorithm for plaintext: sha256, sha512, sha3-256, sha3-512, blake2b-256, blake2b-512, blake3")
+	cmd.Flags().StringVar(&cipherName, "cipher", crypto.CipherAES256GCM, "AEAD cipher: aes-256-gcm, chacha20-poly1305, xchacha20-poly1305")
 	cmd.Flags().BoolVar(&signFlag, "sign", false, "sign the bundle with Ed25519")
 	cmd.Flags().StringVar(&signingPriv, "signing-priv", "", "path to Ed25519 private key (required with --sign)")
 	cmd.Flags().BoolVar(&useStdin, "stdin", false, "read plaintext from standard input")
