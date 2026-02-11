@@ -53,10 +53,13 @@ func newInspectCmd() *cobra.Command {
 				} else {
 					printer.Human("  AAD:      (none)")
 				}
-				printer.Human("  Key ID:   %s:%s", m.Encryption.KeyID.Algo, m.Encryption.KeyID.DigestB64)
-				printer.Human("")
-				printer.Human("Ciphertext:")
-				printer.Human("  Size:     %d bytes", m.Ciphertext.Size)
+			printer.Human("  Key ID:   %s:%s", m.Encryption.KeyID.Algo, m.Encryption.KeyID.DigestB64)
+			if m.Encryption.IsChunked() {
+				printer.Human("  Chunked:  yes (%d byte chunks)", *m.Encryption.ChunkSize)
+			}
+			printer.Human("")
+			printer.Human("Ciphertext:")
+			printer.Human("  Size:     %d bytes", m.Ciphertext.Size)
 			}
 			return nil
 		},

@@ -27,6 +27,10 @@ vaultpack protect --in config.json --sign --signing-priv signing.key
 
 # Verify signature
 vaultpack verify --in config.json.vpack --pubkey signing.pub
+
+# Pipeline: encrypt from stdin, decrypt to stdout
+cat config.json | vaultpack protect --stdin --out config.vpack --key-out config.key
+vaultpack decrypt --in config.vpack --key config.key --stdout > config.json
 ```
 
 ## Install
@@ -73,8 +77,12 @@ vaultpack protect --in <file> [flags]
 | `--aad`          |                  | Additional authenticated data              |
 | `--sign`         |                  | Sign the bundle with Ed25519               |
 | `--signing-priv` |                  | Path to Ed25519 private key (with --sign)  |
+| `--stdin`        |                  | Read plaintext from standard input         |
+| `--stdout`       |                  | Write bundle to standard output            |
 
 The key file is base64-encoded, prefixed with `b64:`. Store it securely -- without it, the bundle cannot be decrypted.
+
+Encryption uses chunked AES-256-GCM (64 KB chunks) for constant-memory streaming of large files.
 
 ### `decrypt` -- Decrypt a `.vpack` bundle
 
@@ -82,12 +90,13 @@ The key file is base64-encoded, prefixed with `b64:`. Store it securely -- witho
 vaultpack decrypt --in <bundle> --out <file> --key <keyfile>
 ```
 
-| Flag    | Default    | Description                                          |
-| ------- | ---------- | ---------------------------------------------------- |
-| `--in`  | (required) | Input `.vpack` bundle                                |
-| `--out` | (required) | Output plaintext path                                |
-| `--key` | (required) | Path to the decryption key                           |
-| `--aad` |            | Override AAD (defaults to value stored in manifest)  |
+| Flag       | Default    | Description                                        |
+| ---------- | ---------- | -------------------------------------------------- |
+| `--in`     | (required) | Input `.vpack` bundle                              |
+| `--out`    |            | Output plaintext path                              |
+| `--key`    | (required) | Path to the decryption key                         |
+| `--aad`    |            | Override AAD from manifest                         |
+| `--stdout` |            | Write decrypted plaintext to standard output       |
 
 ### `inspect` -- Show bundle metadata
 
