@@ -1,0 +1,47 @@
+# IDE / Cursor
+.cursor/rules/
+docs
+# Internal design docs (not for public repos)
+docs/design.md
+
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+vaultpack
+
+# Test artifacts
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Go workspace
+go.work
+go.work.sum
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor files
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.sublime-*
+
+# Key material (never commit)
+*.key
+*.pem
+*.priv
+signing.key
+signing.pub
+
+# VaultPack bundles (don't commit test outputs)
+*.vpack
