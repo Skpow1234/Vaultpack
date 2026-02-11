@@ -248,20 +248,36 @@ func runHashMenu() error {
 }
 
 func runKeygenMenu() error {
-	var outPrefix string
+	var (
+		outPrefix string
+		signAlg   string
+	)
 
-	err := huh.NewInput().
-		Title("Output prefix for key pair").
-		Placeholder("signing").
-		Description("Produces <prefix>.key (private) and <prefix>.pub (public)").
-		Value(&outPrefix).
-		Run()
+	err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Output prefix for key pair").
+				Placeholder("signing").
+				Description("Produces <prefix>.key (private) and <prefix>.pub (public)").
+				Value(&outPrefix),
+			huh.NewSelect[string]().
+				Title("Signing algorithm").
+				Options(
+					huh.NewOption("Ed25519 (default)", "ed25519"),
+					huh.NewOption("ECDSA P-256", "ecdsa-p256"),
+					huh.NewOption("ECDSA P-384", "ecdsa-p384"),
+					huh.NewOption("RSA-PSS 2048", "rsa-pss-2048"),
+					huh.NewOption("RSA-PSS 4096", "rsa-pss-4096"),
+				).
+				Value(&signAlg),
+		),
+	).Run()
 	if err != nil {
 		return err
 	}
 
 	root := NewRootCmd()
-	root.SetArgs([]string{"keygen", "--out", outPrefix})
+	root.SetArgs([]string{"keygen", "--out", outPrefix, "--algo", signAlg})
 	return root.Execute()
 }
 
@@ -278,8 +294,9 @@ func runSignMenu() error {
 				Placeholder("/path/to/bundle.vpack").
 				Value(&inFile),
 			huh.NewInput().
-				Title("Path to Ed25519 private key").
+				Title("Path to private signing key").
 				Placeholder("signing.key").
+				Description("Algorithm is auto-detected from the key format").
 				Value(&signingPriv),
 		),
 	).Run()
@@ -305,8 +322,9 @@ func runVerifyMenu() error {
 				Placeholder("/path/to/bundle.vpack").
 				Value(&inFile),
 			huh.NewInput().
-				Title("Path to Ed25519 public key").
+				Title("Path to public key").
 				Placeholder("signing.pub").
+				Description("Algorithm is auto-detected from key and manifest").
 				Value(&pubKey),
 		),
 	).Run()

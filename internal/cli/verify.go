@@ -20,7 +20,7 @@ func newVerifyCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "verify",
 		Short: "Verify a .vpack bundle signature",
-		Long:  "Verify the Ed25519 detached signature of a .vpack bundle against the canonical manifest and payload hash.",
+		Long:  "Verify the detached signature of a .vpack bundle against the canonical manifest and payload hash.\n\nThe signing algorithm is auto-detected from the manifest's signature_algo field or the public key format.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := NewPrinter(flagJSON, flagQuiet)
 
@@ -43,10 +43,16 @@ func newVerifyCmd() *cobra.Command {
 				return nil
 			}
 
-			// Load public key.
-			pub, err := crypto.LoadPublicKey(pubKey)
+			// Load public key (auto-detects algorithm).
+			pub, keyAlgo, err := crypto.LoadAnyPublicKey(pubKey)
 			if err != nil {
 				return fmt.Errorf("load public key: %w", err)
+			}
+
+			// Determine signing algorithm: prefer manifest field, fall back to key type.
+			signAlgo := keyAlgo
+			if br.Manifest.SignatureAlgo != nil && *br.Manifest.SignatureAlgo != "" {
+				signAlgo = *br.Manifest.SignatureAlgo
 			}
 
 			// Rebuild the signing message from the bundle contents.
@@ -62,7 +68,11 @@ func newVerifyCmd() *cobra.Command {
 
 			sigMsg := crypto.BuildSigningMessage(canonical, payloadHash)
 
-			if !crypto.Verify(pub, sigMsg, br.Signature) {
+			valid, err := crypto.VerifySignature(pub, signAlgo, sigMsg, br.Signature)
+			if err != nil {
+				return fmt.Errorf("verify: %w", err)
+			}
+			if !valid {
 				printer.Error(util.ErrVerifyFailed, "signature verification failed")
 				os.Exit(util.ExitVerifyFailed)
 				return nil
@@ -71,11 +81,13 @@ func newVerifyCmd() *cobra.Command {
 			switch printer.Mode {
 			case OutputJSON:
 				return printer.JSON(map[string]any{
-					"bundle":   inFile,
-					"verified": true,
+					"bundle":    inFile,
+					"verified":  true,
+					"algorithm": signAlgo,
 				})
 			default:
 				printer.Human("Verified: %s", inFile)
+				printer.Human("Algo:     %s", signAlgo)
 				printer.Human("Signature is valid.")
 			}
 			return nil
@@ -83,7 +95,7 @@ func newVerifyCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&inFile, "in", "", "input .vpack bundle to verify (required)")
-	cmd.Flags().StringVar(&pubKey, "pubkey", "", "path to Ed25519 public key (required)")
+	cmd.Flags().StringVar(&pubKey, "pubkey", "", "path to public key (required)")
 
 	return cmd
 }

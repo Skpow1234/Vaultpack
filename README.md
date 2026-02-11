@@ -24,13 +24,17 @@ vaultpack inspect --in config.json.vpack
 vaultpack hash --in export.csv
 vaultpack hash --in export.csv --algo blake3
 
-# Generate a signing key pair
+# Generate a signing key pair (default: Ed25519)
 vaultpack keygen --out signing
 
-# Protect + sign in one step
+# Generate ECDSA or RSA-PSS keys
+vaultpack keygen --out mykey --algo ecdsa-p256
+vaultpack keygen --out mykey --algo rsa-pss-4096
+
+# Protect + sign in one step (algo is auto-detected from the key)
 vaultpack protect --in config.json --sign --signing-priv signing.key
 
-# Verify signature
+# Verify signature (algo is auto-detected from manifest and key)
 vaultpack verify --in config.json.vpack --pubkey signing.pub
 
 # Pipeline: encrypt from stdin, decrypt to stdout
@@ -82,8 +86,9 @@ vaultpack protect --in <file> [flags]
 | `--aad`          |                  | Additional authenticated data              |
 | `--cipher`       | `aes-256-gcm`    | AEAD cipher (see below)                    |
 | `--hash-algo`    | `sha256`         | Hash algorithm for plaintext integrity     |
-| `--sign`         |                  | Sign the bundle with Ed25519               |
-| `--signing-priv` |                  | Path to Ed25519 private key (with --sign)  |
+| `--sign`         |                  | Sign the bundle (algo auto-detected)       |
+| `--signing-priv` |                  | Path to private signing key (with --sign)  |
+| `--sign-algo`    |                  | Override signing algorithm (auto-detected) |
 | `--stdin`        |                  | Read plaintext from standard input         |
 | `--stdout`       |                  | Write bundle to standard output            |
 
@@ -132,13 +137,18 @@ vaultpack hash --in <file> [--algo sha256]
 | `--in` | (required) | File to hash |
 | `--algo` | `sha256` | Hash algorithm: `sha256`, `sha512`, `sha3-256`, `sha3-512`, `blake2b-256`, `blake2b-512`, `blake3` |
 
-### `keygen` -- Generate an Ed25519 signing key pair
+### `keygen` -- Generate a signing key pair
 
 ```bash
-vaultpack keygen --out <prefix>
+vaultpack keygen --out <prefix> [--algo ed25519]
 ```
 
-Produces `<prefix>.key` (private) and `<prefix>.pub` (public).
+   | Flag     | Default    | Description                                                                              |
+   | -------- | ---------- | -----------------------------------------------------------------------------------------|
+   | `--out`  | (required) | Output path prefix (produces `<prefix>.key` + `<prefix>.pub`)                            |
+   | `--algo` | `ed25519`  | Signing algorithm: `ed25519`, `ecdsa-p256`, `ecdsa-p384`, `rsa-pss-2048`, `rsa-pss-4096` |
+
+Keys are saved in PEM format (PKCS#8 private, PKIX public). Legacy Ed25519 raw keys are still accepted for backward compatibility.
 
 ### `sign` -- Sign a `.vpack` bundle
 
@@ -146,7 +156,23 @@ Produces `<prefix>.key` (private) and `<prefix>.pub` (public).
 vaultpack sign --in <bundle> --signing-priv <private-key>
 ```
 
-Adds a detached Ed25519 signature (`signature.sig`) to the bundle. The signature covers the canonical manifest and the SHA-256 of the payload, preventing both manifest tampering and payload swapping.
+| Flag             | Default    | Description                                             |
+| ---------------- | ---------- | ------------------------------------------------------- |
+| `--in`           | (required) | Input `.vpack` bundle to sign                           |
+| `--signing-priv` | (required) | Path to private signing key                             |
+| `--algo`         |            | Signing algorithm (auto-detected from key if omitted)   |
+
+Adds a detached signature (`signature.sig`) to the bundle. The signing algorithm is auto-detected from the key format. The signature covers the canonical manifest and the SHA-256 of the payload, preventing both manifest tampering and payload swapping.
+
+Supported signing algorithms:
+
+| Algorithm         | Key Type       | Signature Format | Notes                            |
+| ----------------- | -------------- | ---------------- | -------------------------------- |
+| `ed25519`         | Ed25519        | Raw (64 bytes)   | Fast, compact, default           |
+| `ecdsa-p256`      | ECDSA P-256    | ASN.1 DER        | NIST curve, widely supported     |
+| `ecdsa-p384`      | ECDSA P-384    | ASN.1 DER        | Stronger NIST curve              |
+| `rsa-pss-2048`    | RSA 2048-bit   | RSA-PSS/SHA-256  | Modern RSA padding               |
+| `rsa-pss-4096`    | RSA 4096-bit   | RSA-PSS/SHA-256  | Higher security margin           |
 
 ### `verify` -- Verify a bundle signature
 
@@ -180,7 +206,7 @@ artifact.vpack
 
 - **Encryption**: AES-256-GCM, ChaCha20-Poly1305, or XChaCha20-Poly1305 (AEAD) with random nonces
 - **Hashing**: SHA-256 (default), SHA-512, SHA3-256, SHA3-512, BLAKE2b-256, BLAKE2b-512, BLAKE3
-- **Signing**: Ed25519 detached signatures over canonical manifest + payload hash
+- **Signing**: Ed25519, ECDSA (P-256/P-384), RSA-PSS (2048/4096) -- detached signatures over canonical manifest + payload hash
 - **Key fingerprint**: SHA-256 of the raw key, stored in the manifest for early mismatch detection
 - Keys are never stored inside the bundle
 

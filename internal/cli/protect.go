@@ -25,6 +25,7 @@ func newProtectCmd() *cobra.Command {
 		cipherName  string
 		signFlag    bool
 		signingPriv string
+		signAlgo    string
 		useStdin    bool
 		useStdout   bool
 	)
@@ -186,11 +187,20 @@ func newProtectCmd() *cobra.Command {
 
 			// Optionally sign.
 			var sig []byte
+			var resolvedSignAlgo string
 			if signFlag {
-				privKey, err := crypto.LoadSigningKey(signingPriv)
+				privKey, detectedAlgo, err := crypto.LoadPrivateKey(signingPriv)
 				if err != nil {
 					return fmt.Errorf("load signing key: %w", err)
 				}
+
+				resolvedSignAlgo = detectedAlgo
+				if signAlgo != "" && signAlgo != detectedAlgo {
+					return fmt.Errorf("--sign-algo %q does not match key type %q", signAlgo, detectedAlgo)
+				}
+
+				// Store signing algo in manifest.
+				m.SignatureAlgo = &resolvedSignAlgo
 
 				canonical, err := bundle.CanonicalManifest(m)
 				if err != nil {
@@ -205,7 +215,16 @@ func newProtectCmd() *cobra.Command {
 				}
 
 				sigMsg := crypto.BuildSigningMessage(canonical, payloadHash)
-				sig = crypto.Sign(privKey, sigMsg)
+				sig, err = crypto.SignMessage(privKey, resolvedSignAlgo, sigMsg)
+				if err != nil {
+					return fmt.Errorf("sign: %w", err)
+				}
+
+				// Re-marshal manifest (it now includes signature_algo).
+				manifestBytes, err = bundle.MarshalManifest(m)
+				if err != nil {
+					return fmt.Errorf("re-marshal manifest: %w", err)
+				}
 			}
 
 			// Write bundle.
@@ -238,6 +257,7 @@ func newProtectCmd() *cobra.Command {
 
 			// Output.
 			signed := signFlag
+			_ = resolvedSignAlgo // used below
 			outDesc := outFile
 			if useStdout {
 				outDesc = "stdout"
@@ -265,7 +285,7 @@ func newProtectCmd() *cobra.Command {
 				printer.Human("Cipher:    %s (chunked, %d byte chunks)", cipherName, chunkSize)
 				printer.Human("Hash:      %s:%s", hashAlgo, util.B64Encode(digest))
 				if signed {
-					printer.Human("Signed:    yes (ed25519)")
+					printer.Human("Signed:    yes (%s)", resolvedSignAlgo)
 				}
 			}
 			return nil
@@ -279,8 +299,9 @@ func newProtectCmd() *cobra.Command {
 	cmd.Flags().StringVar(&aadStr, "aad", "", "additional authenticated data (e.g. 'env=prod,app=payments')")
 	cmd.Flags().StringVar(&hashAlgo, "hash-algo", "sha256", "hash algorithm for plaintext: sha256, sha512, sha3-256, sha3-512, blake2b-256, blake2b-512, blake3")
 	cmd.Flags().StringVar(&cipherName, "cipher", crypto.CipherAES256GCM, "AEAD cipher: aes-256-gcm, chacha20-poly1305, xchacha20-poly1305")
-	cmd.Flags().BoolVar(&signFlag, "sign", false, "sign the bundle with Ed25519")
-	cmd.Flags().StringVar(&signingPriv, "signing-priv", "", "path to Ed25519 private key (required with --sign)")
+	cmd.Flags().BoolVar(&signFlag, "sign", false, "sign the bundle")
+	cmd.Flags().StringVar(&signingPriv, "signing-priv", "", "path to private signing key (required with --sign)")
+	cmd.Flags().StringVar(&signAlgo, "sign-algo", "", "signing algorithm (auto-detected from key if omitted)")
 	cmd.Flags().BoolVar(&useStdin, "stdin", false, "read plaintext from standard input")
 	cmd.Flags().BoolVar(&useStdout, "stdout", false, "write bundle to standard output")
 

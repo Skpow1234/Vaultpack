@@ -5,12 +5,13 @@ const ManifestVersion = "v1"
 
 // Manifest represents the manifest.json inside a .vpack bundle.
 type Manifest struct {
-	Version    string         `json:"version"`
-	CreatedAt  string         `json:"created_at"`
-	Input      InputMeta      `json:"input"`
-	Plaintext  PlaintextHash  `json:"plaintext_hash"`
-	Encryption EncryptionMeta `json:"encryption"`
-	Ciphertext CiphertextMeta `json:"ciphertext"`
+	Version       string         `json:"version"`
+	CreatedAt     string         `json:"created_at"`
+	Input         InputMeta      `json:"input"`
+	Plaintext     PlaintextHash  `json:"plaintext_hash"`
+	Encryption    EncryptionMeta `json:"encryption"`
+	Ciphertext    CiphertextMeta `json:"ciphertext"`
+	SignatureAlgo *string        `json:"signature_algo,omitempty"` // nil = unsigned or legacy ed25519
 }
 
 // InputMeta describes the original plaintext file.

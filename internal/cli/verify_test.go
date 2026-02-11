@@ -28,10 +28,14 @@ func TestVerifyCmd_WrongKey(t *testing.T) {
 		t.Fatalf("sign: %v", err)
 	}
 
-	// Generate a different key pair.
-	_, wrongPub, _ := crypto.GenerateSigningKeyPair()
+	// Generate a different key pair (PEM format).
+	wrongPrivPEM, wrongPubPEM, err := crypto.GenerateSigningKeys(crypto.SignAlgoEd25519)
+	if err != nil {
+		t.Fatalf("generate wrong keys: %v", err)
+	}
+	_ = wrongPrivPEM
 	wrongPubPath := filepath.Join(dir, "wrong.pub")
-	crypto.SavePublicKey(wrongPubPath, wrongPub)
+	crypto.SaveKeyPEM(wrongPubPath, wrongPubPEM, 0o644)
 
 	// Verify with wrong key - should fail (calls os.Exit).
 	// We verify the setup is correct.
