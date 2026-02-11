@@ -52,6 +52,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newKeygenCmd())
 	root.AddCommand(newSignCmd())
 	root.AddCommand(newVerifyCmd())
+	root.AddCommand(newMenuCmd())
 
 	return root
 }
