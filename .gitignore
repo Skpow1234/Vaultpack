@@ -1,6 +1,7 @@
 # IDE / Cursor
 .cursor/rules/
 docs
+testdata
 # Internal design docs (not for public repos)
 docs/design.md
 
