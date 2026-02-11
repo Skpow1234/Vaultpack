@@ -14,8 +14,16 @@ vaultpack protect --in config.json
 vaultpack protect --in config.json --cipher chacha20-poly1305
 vaultpack protect --in config.json --cipher xchacha20-poly1305
 
+# Encrypt with a password instead of a key file
+vaultpack protect --in config.json --password "my-secret-passphrase"
+vaultpack protect --in config.json --password "pass" --kdf scrypt
+vaultpack protect --in config.json --password-file pw.txt --kdf pbkdf2-sha256
+
 # Decrypt (cipher is auto-detected from the bundle)
 vaultpack decrypt --in config.json.vpack --out config.json --key config.json.key
+
+# Decrypt a password-protected bundle
+vaultpack decrypt --in config.json.vpack --out config.json --password "my-secret-passphrase"
 
 # Inspect the bundle metadata
 vaultpack inspect --in config.json.vpack
@@ -89,10 +97,15 @@ vaultpack protect --in <file> [flags]
 | `--sign`         |                  | Sign the bundle (algo auto-detected)       |
 | `--signing-priv` |                  | Path to private signing key (with --sign)  |
 | `--sign-algo`    |                  | Override signing algorithm (auto-detected) |
+| `--password`     |                  | Encrypt with a password (instead of key)   |
+| `--password-file`|                  | Read password from file                    |
+| `--kdf`          | `argon2id`       | KDF: `argon2id`, `scrypt`, `pbkdf2-sha256` |
+| `--kdf-time`     | `3`              | Argon2id time parameter                    |
+| `--kdf-memory`   | `65536`          | Argon2id memory in KiB (64 MB default)     |
 | `--stdin`        |                  | Read plaintext from standard input         |
 | `--stdout`       |                  | Write bundle to standard output            |
 
-The key file is base64-encoded, prefixed with `b64:`. Store it securely -- without it, the bundle cannot be decrypted.
+When using `--password`, no key file is generated -- the key is derived from your password using the selected KDF. When using a key file, it is base64-encoded with a `b64:` prefix. Store either securely.
 
 Supported ciphers (all use 32-byte keys and chunked streaming with 64 KB chunks):
 
@@ -108,15 +121,20 @@ Decryption auto-detects the cipher from the bundle manifest.
 
 ```bash
 vaultpack decrypt --in <bundle> --out <file> --key <keyfile>
+vaultpack decrypt --in <bundle> --out <file> --password "passphrase"
 ```
 
-| Flag       | Default    | Description                                        |
-| ---------- | ---------- | -------------------------------------------------- |
-| `--in`     | (required) | Input `.vpack` bundle                              |
-| `--out`    |            | Output plaintext path                              |
-| `--key`    | (required) | Path to the decryption key                         |
-| `--aad`    |            | Override AAD from manifest                         |
-| `--stdout` |            | Write decrypted plaintext to standard output       |
+| Flag              | Default    | Description                                        |
+| ----------------- | ---------- | -------------------------------------------------- |
+| `--in`            | (required) | Input `.vpack` bundle                              |
+| `--out`           |            | Output plaintext path                              |
+| `--key`           |            | Path to the decryption key                         |
+| `--password`      |            | Decrypt with a password                            |
+| `--password-file` |            | Read password from file                            |
+| `--aad`           |            | Override AAD from manifest                         |
+| `--stdout`        |            | Write decrypted plaintext to standard output       |
+
+Provide either `--key` or `--password` (not both). For password-protected bundles, the KDF parameters are auto-detected from the manifest.
 
 ### `inspect` -- Show bundle metadata
 
@@ -207,8 +225,9 @@ artifact.vpack
 - **Encryption**: AES-256-GCM, ChaCha20-Poly1305, or XChaCha20-Poly1305 (AEAD) with random nonces
 - **Hashing**: SHA-256 (default), SHA-512, SHA3-256, SHA3-512, BLAKE2b-256, BLAKE2b-512, BLAKE3
 - **Signing**: Ed25519, ECDSA (P-256/P-384), RSA-PSS (2048/4096) -- detached signatures over canonical manifest + payload hash
-- **Key fingerprint**: SHA-256 of the raw key, stored in the manifest for early mismatch detection
-- Keys are never stored inside the bundle
+- **Key Derivation**: Argon2id (default, t=3, m=64MB, p=4), scrypt (N=32768, r=8, p=1), PBKDF2-SHA256 (600k iterations)
+- **Key fingerprint**: SHA-256 of the derived/raw key, stored in the manifest for early mismatch detection
+- Passwords and keys are never stored inside the bundle
 
 ## Development
 
