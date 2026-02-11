@@ -15,22 +15,27 @@ import (
 
 func newProtectCmd() *cobra.Command {
 	var (
-		inFile     string
-		outFile    string
-		keyOutFile string
-		keyFile    string
-		aadStr     string
+		inFile      string
+		outFile     string
+		keyOutFile  string
+		keyFile     string
+		aadStr      string
+		signFlag    bool
+		signingPriv string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "protect",
 		Short: "Encrypt a file into a .vpack bundle",
-		Long:  "Hash the plaintext, encrypt with AES-256-GCM, and write a portable .vpack bundle.",
+		Long:  "Hash the plaintext, encrypt with AES-256-GCM, and write a portable .vpack bundle. Optionally sign with Ed25519.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := NewPrinter(flagJSON, flagQuiet)
 
 			if inFile == "" {
 				return fmt.Errorf("--in is required")
+			}
+			if signFlag && signingPriv == "" {
+				return fmt.Errorf("--signing-priv is required when --sign is set")
 			}
 
 			// Default output path: input + .vpack extension.
@@ -120,11 +125,34 @@ func newProtectCmd() *cobra.Command {
 				return fmt.Errorf("marshal manifest: %w", err)
 			}
 
+			// Optionally sign.
+			var sig []byte
+			if signFlag {
+				privKey, err := crypto.LoadSigningKey(signingPriv)
+				if err != nil {
+					return fmt.Errorf("load signing key: %w", err)
+				}
+
+				canonical, err := bundle.CanonicalManifest(m)
+				if err != nil {
+					return fmt.Errorf("canonicalize manifest: %w", err)
+				}
+
+				payloadHash, err := crypto.HashReader(bytes.NewReader(result.Ciphertext), "sha256")
+				if err != nil {
+					return fmt.Errorf("hash payload: %w", err)
+				}
+
+				sigMsg := crypto.BuildSigningMessage(canonical, payloadHash)
+				sig = crypto.Sign(privKey, sigMsg)
+			}
+
 			// Write bundle.
 			err = bundle.Write(&bundle.WriteParams{
 				OutputPath:    outFile,
 				Ciphertext:    result.Ciphertext,
 				ManifestBytes: manifestBytes,
+				Signature:     sig,
 			})
 			if err != nil {
 				return fmt.Errorf("write bundle: %w", err)
@@ -138,6 +166,7 @@ func newProtectCmd() *cobra.Command {
 			}
 
 			// Output.
+			signed := signFlag
 			switch printer.Mode {
 			case OutputJSON:
 				return printer.JSON(map[string]any{
@@ -148,6 +177,7 @@ func newProtectCmd() *cobra.Command {
 					"algo":        "aes-256-gcm",
 					"hash_algo":   "sha256",
 					"hash_digest": util.B64Encode(digest),
+					"signed":      signed,
 				})
 			default:
 				printer.Human("Protected: %s", inFile)
@@ -157,6 +187,9 @@ func newProtectCmd() *cobra.Command {
 				}
 				printer.Human("Algo:      aes-256-gcm")
 				printer.Human("Hash:      sha256:%s", util.B64Encode(digest))
+				if signed {
+					printer.Human("Signed:    yes (ed25519)")
+				}
 			}
 			return nil
 		},
@@ -167,6 +200,8 @@ func newProtectCmd() *cobra.Command {
 	cmd.Flags().StringVar(&keyOutFile, "key-out", "", "path to write the generated key (default: <input>.key)")
 	cmd.Flags().StringVar(&keyFile, "key", "", "path to an existing key (skips key generation)")
 	cmd.Flags().StringVar(&aadStr, "aad", "", "additional authenticated data (e.g. 'env=prod,app=payments')")
+	cmd.Flags().BoolVar(&signFlag, "sign", false, "sign the bundle with Ed25519")
+	cmd.Flags().StringVar(&signingPriv, "signing-priv", "", "path to Ed25519 private key (required with --sign)")
 
 	return cmd
 }

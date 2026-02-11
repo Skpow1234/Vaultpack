@@ -18,6 +18,15 @@ vaultpack inspect --in config.json.vpack
 
 # Hash a file
 vaultpack hash --in export.csv
+
+# Generate a signing key pair
+vaultpack keygen --out signing
+
+# Protect + sign in one step
+vaultpack protect --in config.json --sign --signing-priv signing.key
+
+# Verify signature
+vaultpack verify --in config.json.vpack --pubkey signing.pub
 ```
 
 ## Install
@@ -55,13 +64,15 @@ docker run --rm -v "$PWD:/work" vaultpack protect --in /work/config.json
 vaultpack protect --in <file> [flags]
 ```
 
-| Flag        | Default          | Description                                        |
-| ----------- | ---------------- | -------------------------------------------------- |
-| `--in`      | (required)       | Input file to encrypt                              |
-| `--out`     | `<input>.vpack`  | Output bundle path                                 |
-| `--key-out` | `<input>.key`    | Path to write the generated key                    |
-| `--key`     |                  | Use an existing key (skips generation)             |
-| `--aad`     |                  | Additional authenticated data                      |
+| Flag             | Default          | Description                                |
+| ---------------- | ---------------- | ------------------------------------------ |
+| `--in`           | (required)       | Input file to encrypt                      |
+| `--out`          | `<input>.vpack`  | Output bundle path                         |
+| `--key-out`      | `<input>.key`    | Path to write the generated key            |
+| `--key`          |                  | Use an existing key (skips generation)     |
+| `--aad`          |                  | Additional authenticated data              |
+| `--sign`         |                  | Sign the bundle with Ed25519               |
+| `--signing-priv` |                  | Path to Ed25519 private key (with --sign)  |
 
 The key file is base64-encoded, prefixed with `b64:`. Store it securely -- without it, the bundle cannot be decrypted.
 
@@ -97,6 +108,30 @@ vaultpack hash --in <file> [--algo sha256]
 | `--in`   | (required) | File to hash   |
 | `--algo` | `sha256`   | Hash algorithm |
 
+### `keygen` -- Generate an Ed25519 signing key pair
+
+```bash
+vaultpack keygen --out <prefix>
+```
+
+Produces `<prefix>.key` (private) and `<prefix>.pub` (public).
+
+### `sign` -- Sign a `.vpack` bundle
+
+```bash
+vaultpack sign --in <bundle> --signing-priv <private-key>
+```
+
+Adds a detached Ed25519 signature (`signature.sig`) to the bundle. The signature covers the canonical manifest and the SHA-256 of the payload, preventing both manifest tampering and payload swapping.
+
+### `verify` -- Verify a bundle signature
+
+```bash
+vaultpack verify --in <bundle> --pubkey <public-key>
+```
+
+Exits with code `0` if valid, `10` if verification fails.
+
 ### Global Flags
 
 | Flag        | Description                  |
@@ -121,6 +156,7 @@ artifact.vpack
 
 - **Encryption**: AES-256-GCM (AEAD) with random 12-byte nonces
 - **Hashing**: SHA-256 over plaintext for integrity tracking
+- **Signing**: Ed25519 detached signatures over canonical manifest + payload hash
 - **Key fingerprint**: SHA-256 of the raw key, stored in the manifest for early mismatch detection
 - Keys are never stored inside the bundle
 
