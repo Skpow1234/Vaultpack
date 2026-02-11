@@ -36,10 +36,74 @@ jobs:
       - name: Run vet
         run: go vet ./...
 
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  security:
+    name: Security (govulncheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck ./...
+
+  fuzz:
+    name: Fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: FuzzUnmarshalManifest
+            package: ./internal/bundle/...
+          - target: FuzzCanonicalManifest
+            package: ./internal/bundle/...
+          - target: FuzzDecryptAESGCM
+            package: ./internal/crypto/...
+          - target: FuzzEncryptDecryptRoundTrip
+            package: ./internal/crypto/...
+          - target: FuzzStreamEncryptDecryptRoundTrip
+            package: ./internal/crypto/...
+          - target: FuzzDecryptStreamCorrupted
+            package: ./internal/crypto/...
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Fuzz ${{ matrix.target }}
+        run: go test -fuzz=${{ matrix.target }} -fuzztime=30s ${{ matrix.package }}
+
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: ubuntu-latest
-    needs: [test]
+    needs: [test, lint, security]
     strategy:
       matrix:
         include:

@@ -4,7 +4,7 @@ BUILD_DIR  := bin
 VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS    := -ldflags "-s -w -X $(MODULE)/internal/cli.Version=$(VERSION)"
 
-.PHONY: build test lint fmt vet clean docker-build help
+.PHONY: build test lint fmt vet vulncheck fuzz clean docker-build help
 
 ## build: Compile the binary into bin/
 build:
@@ -21,6 +21,19 @@ lint:
 ## vet: Run go vet
 vet:
 	go vet ./...
+
+## vulncheck: Run govulncheck for known vulnerabilities
+vulncheck:
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+## fuzz: Run all fuzz targets for 30s each
+fuzz:
+	go test -fuzz=FuzzUnmarshalManifest -fuzztime=30s ./internal/bundle/...
+	go test -fuzz=FuzzCanonicalManifest -fuzztime=30s ./internal/bundle/...
+	go test -fuzz=FuzzDecryptAESGCM -fuzztime=30s ./internal/crypto/...
+	go test -fuzz=FuzzEncryptDecryptRoundTrip -fuzztime=30s ./internal/crypto/...
+	go test -fuzz=FuzzStreamEncryptDecryptRoundTrip -fuzztime=30s ./internal/crypto/...
+	go test -fuzz=FuzzDecryptStreamCorrupted -fuzztime=30s ./internal/crypto/...
 
 ## fmt: Format code with gofumpt (falls back to gofmt)
 fmt:
