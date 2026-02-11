@@ -16,8 +16,9 @@ vaultpack decrypt --in config.json.vpack --out config.json --key config.json.key
 # Inspect the bundle metadata
 vaultpack inspect --in config.json.vpack
 
-# Hash a file
+# Hash a file (default: SHA-256; also supports sha512, sha3-256, sha3-512, blake2b-256, blake2b-512, blake3)
 vaultpack hash --in export.csv
+vaultpack hash --in export.csv --algo blake3
 
 # Generate a signing key pair
 vaultpack keygen --out signing
@@ -75,6 +76,7 @@ vaultpack protect --in <file> [flags]
 | `--key-out`      | `<input>.key`    | Path to write the generated key            |
 | `--key`          |                  | Use an existing key (skips generation)     |
 | `--aad`          |                  | Additional authenticated data              |
+| `--hash-algo`    | `sha256`         | Hash algorithm for plaintext integrity     |
 | `--sign`         |                  | Sign the bundle with Ed25519               |
 | `--signing-priv` |                  | Path to Ed25519 private key (with --sign)  |
 | `--stdin`        |                  | Read plaintext from standard input         |
@@ -112,10 +114,10 @@ Displays the manifest: version, input file info, hash, encryption parameters, an
 vaultpack hash --in <file> [--algo sha256]
 ```
 
-| Flag     | Default    | Description    |
-| -------- | ---------- | -------------- |
-| `--in`   | (required) | File to hash   |
-| `--algo` | `sha256`   | Hash algorithm |
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--in` | (required) | File to hash |
+| `--algo` | `sha256` | Hash algorithm: `sha256`, `sha512`, `sha3-256`, `sha3-512`, `blake2b-256`, `blake2b-512`, `blake3` |
 
 ### `keygen` -- Generate an Ed25519 signing key pair
 
@@ -164,7 +166,7 @@ artifact.vpack
 ## Security
 
 - **Encryption**: AES-256-GCM (AEAD) with random 12-byte nonces
-- **Hashing**: SHA-256 over plaintext for integrity tracking
+- **Hashing**: SHA-256 (default), SHA-512, SHA3-256, SHA3-512, BLAKE2b-256, BLAKE2b-512, BLAKE3
 - **Signing**: Ed25519 detached signatures over canonical manifest + payload hash
 - **Key fingerprint**: SHA-256 of the raw key, stored in the manifest for early mismatch detection
 - Keys are never stored inside the bundle
