@@ -34,14 +34,16 @@ func newProtectCmd() *cobra.Command {
 		kdfAlgo      string
 		kdfTime      uint32
 		kdfMemory    uint32
-		recipients   []string
-		compressAlgo string
+		recipients     []string
+		compressAlgo   string
+		splitShares    int
+		splitThreshold int
 	)
 
 	cmd := &cobra.Command{
 		Use:   "protect",
 		Short: "Encrypt a file into a .vpack bundle",
-		Long:  "Hash the plaintext, optionally compress, encrypt with an AEAD cipher, and write a portable .vpack bundle.\n\nSupported ciphers: aes-256-gcm (default), chacha20-poly1305, xchacha20-poly1305.\nCompression: --compress gzip|zstd (default: none).\nMultiple recipients: --recipient alice.pem --recipient bob.pem.\n\nUse --stdin to read from standard input and --stdout to write the bundle to standard output.",
+		Long:  "Hash the plaintext, optionally compress, encrypt with an AEAD cipher, and write a portable .vpack bundle.\n\nSupported ciphers: aes-256-gcm (default), chacha20-poly1305, xchacha20-poly1305.\nCompression: --compress gzip|zstd (default: none).\nMultiple recipients: --recipient alice.pem --recipient bob.pem.\nKey splitting: --split-shares 5 --split-threshold 3 (Shamir SSS).\n\nUse --stdin to read from standard input and --stdout to write the bundle to standard output.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := NewPrinter(flagJSON, flagQuiet)
 
@@ -81,6 +83,20 @@ func newProtectCmd() *cobra.Command {
 			}
 			if keyModes > 1 {
 				return fmt.Errorf("--password, --key, and --recipient are mutually exclusive")
+			}
+
+			// Validate key splitting.
+			useSplit := splitShares > 0 || splitThreshold > 0
+			if useSplit {
+				if splitShares < 2 || splitShares > 255 {
+					return fmt.Errorf("--split-shares must be in [2..255]")
+				}
+				if splitThreshold < 2 || splitThreshold > splitShares {
+					return fmt.Errorf("--split-threshold must be in [2..split-shares]")
+				}
+				if usePassword || useRecipient {
+					return fmt.Errorf("--split-shares is only supported with key-file or auto-generated key encryption")
+				}
 			}
 
 			// Resolve password from file if provided.
@@ -339,9 +355,19 @@ func newProtectCmd() *cobra.Command {
 
 			chunkSize := crypto.DefaultChunkSize
 
+			// Build key splitting metadata (if requested).
+			var splitMeta *bundle.KeySplitMeta
+			if useSplit {
+				splitMeta = &bundle.KeySplitMeta{
+					Scheme:    "shamir-gf256",
+					Threshold: splitThreshold,
+					Total:     splitShares,
+				}
+			}
+
 			// Select manifest version: v2 if using new features, v1 for backward compat.
 			manifestVer := bundle.ManifestVersionV1
-			if compMeta != nil || (hybridMeta != nil && len(hybridMeta.Recipients) > 0) {
+			if compMeta != nil || (hybridMeta != nil && len(hybridMeta.Recipients) > 0) || splitMeta != nil {
 				manifestVer = bundle.ManifestVersionV2
 			}
 
@@ -372,7 +398,8 @@ func newProtectCmd() *cobra.Command {
 				Ciphertext: bundle.CiphertextMeta{
 					Size: streamResult.CiphertextSize,
 				},
-				Compress: compMeta,
+				Compress:     compMeta,
+				KeySplitting: splitMeta,
 			}
 
 			manifestBytes, err := bundle.MarshalManifest(m)
@@ -446,9 +473,34 @@ func newProtectCmd() *cobra.Command {
 			}
 
 			// Save key file if we generated one.
-			if keyOutFile != "" {
+			if keyOutFile != "" && !useSplit {
 				if err := crypto.SaveKeyFile(keyOutFile, key); err != nil {
 					return fmt.Errorf("save key: %w", err)
+				}
+			}
+
+			// Split key into Shamir shares if requested.
+			var sharePaths []string
+			if useSplit {
+				// Read the raw key file bytes that would normally be written.
+				keyFileData := []byte(crypto.KeyFilePrefix + util.B64Encode(key) + "\n")
+
+				splitResult, err := crypto.SplitSecret(keyFileData, splitShares, splitThreshold)
+				if err != nil {
+					return fmt.Errorf("split key: %w", err)
+				}
+
+				shareDir := filepath.Dir(keyOutFile)
+				shareBase := filepath.Base(keyOutFile)
+				sharePaths = make([]string, len(splitResult))
+				for _, s := range splitResult {
+					name := fmt.Sprintf("%s.share%d", shareBase, s.Index)
+					p := filepath.Join(shareDir, name)
+					data := crypto.MarshalShare(s)
+					if err := os.WriteFile(p, data, 0o600); err != nil {
+						return fmt.Errorf("write share %d: %w", s.Index, err)
+					}
+					sharePaths[int(s.Index)-1] = p
 				}
 			}
 
@@ -487,12 +539,26 @@ func newProtectCmd() *cobra.Command {
 					result["compression"] = compressAlgo
 					result["original_size"] = compMeta.OriginalSize
 				}
+				if useSplit {
+					result["key_split"] = map[string]any{
+						"scheme":    "shamir-gf256",
+						"threshold": splitThreshold,
+						"total":     splitShares,
+						"shares":    sharePaths,
+					}
+				}
 				return printer.JSON(result)
 			default:
 				printer.Human("Protected: %s", inputName)
 				printer.Human("Bundle:    %s", outDesc)
-				if keyOutFile != "" {
+				if keyOutFile != "" && !useSplit {
 					printer.Human("Key:       %s", keyOutFile)
+				}
+				if useSplit {
+					printer.Human("Key split: %d-of-%d Shamir shares", splitThreshold, splitShares)
+					for _, sp := range sharePaths {
+						printer.Human("  Share:   %s", sp)
+					}
 				}
 				if useRecipient {
 					printer.Human("Hybrid:    %s (%d recipient(s))", hybridMeta.Scheme, len(recipients))
@@ -533,6 +599,8 @@ func newProtectCmd() *cobra.Command {
 	cmd.Flags().Uint32Var(&kdfMemory, "kdf-memory", 0, "Argon2id memory parameter in KiB (default: 65536 = 64MB)")
 	cmd.Flags().StringArrayVar(&recipients, "recipient", nil, "recipient's PEM public key (hybrid encryption, repeatable for multi-recipient)")
 	cmd.Flags().StringVar(&compressAlgo, "compress", crypto.CompressNone, "pre-encryption compression: none, gzip, zstd")
+	cmd.Flags().IntVar(&splitShares, "split-shares", 0, "split the key into N Shamir shares (requires --split-threshold)")
+	cmd.Flags().IntVar(&splitThreshold, "split-threshold", 0, "minimum shares to reconstruct (K-of-N, requires --split-shares)")
 
 	return cmd
 }

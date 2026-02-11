@@ -63,6 +63,15 @@ vaultpack protect --in config.json --sign --signing-priv signing.key
 # Verify signature (algo is auto-detected from manifest and key)
 vaultpack verify --in config.json.vpack --pubkey signing.pub
 
+# Protect + auto-split key into Shamir shares (3-of-5)
+vaultpack protect --in config.json --split-shares 5 --split-threshold 3
+
+# Split an existing key file into shares
+vaultpack split-key --in config.json.key --shares 5 --threshold 3
+
+# Reconstruct a key from any 3 shares
+vaultpack combine-key --share config.json.key.share1 --share config.json.key.share3 --share config.json.key.share5 --out recovered.key
+
 # Pipeline: encrypt from stdin, decrypt to stdout
 cat config.json | vaultpack protect --stdin --out config.vpack --key-out config.key
 vaultpack decrypt --in config.vpack --key config.key --stdout > config.json
@@ -120,31 +129,35 @@ docker run --rm -v "$PWD:/work" vaultpack protect --in /work/config.json
 vaultpack protect --in <file> [flags]
 ```
 
-| Flag             | Default          | Description                                        |
-| ---------------- | ---------------- | -------------------------------------------------- |
-| `--in`           | (required)       | Input file to encrypt                              |
-| `--out`          | `<input>.vpack`  | Output bundle path                                 |
-| `--key-out`      | `<input>.key`    | Path to write the generated key                    |
-| `--key`          |                  | Use an existing key (skips generation)             |
-| `--aad`          |                  | Additional authenticated data                      |
-| `--cipher`       | `aes-256-gcm`    | AEAD cipher (see below)                            |
-| `--hash-algo`    | `sha256`         | Hash algorithm for plaintext integrity             |
-| `--sign`         |                  | Sign the bundle (algo auto-detected)               |
-| `--signing-priv` |                  | Path to private signing key (with --sign)          |
-| `--sign-algo`    |                  | Override signing algorithm (auto-detected)         |
-| `--password`     |                  | Encrypt with a password (instead of key)           |
-| `--password-file`|                  | Read password from file                            |
-| `--kdf`          | `argon2id`       | KDF: `argon2id`, `scrypt`, `pbkdf2-sha256`         |
-| `--kdf-time`     | `3`              | Argon2id time parameter                            |
-| `--kdf-memory`   | `65536`          | Argon2id memory in KiB (64 MB default)             |
-| `--recipient`    |                  | Recipient PEM public key (hybrid, repeatable)      |
-| `--compress`     | `none`           | Pre-encryption compression: `none`, `gzip`, `zstd` |
-| `--stdin`        |                  | Read plaintext from standard input                 |
-| `--stdout`       |                  | Write bundle to standard output                    |
+| Flag             | Default          | Description                                                   |
+| ---------------- | ---------------- | ------------------------------------------------------------- |
+| `--in`           | (required)       | Input file to encrypt                                         |
+| `--out`          | `<input>.vpack`  | Output bundle path                                            |
+| `--key-out`      | `<input>.key`    | Path to write the generated key                               |
+| `--key`          |                  | Use an existing key (skips generation)                        |
+| `--aad`          |                  | Additional authenticated data                                 |
+| `--cipher`       | `aes-256-gcm`    | AEAD cipher (see below)                                       |
+| `--hash-algo`    | `sha256`         | Hash algorithm for plaintext integrity                        |
+| `--sign`         |                  | Sign the bundle (algo auto-detected)                          |
+| `--signing-priv` |                  | Path to private signing key (with --sign)                     |
+| `--sign-algo`    |                  | Override signing algorithm (auto-detected)                    |
+| `--password`     |                  | Encrypt with a password (instead of key)                      |
+| `--password-file`|                  | Read password from file                                       |
+| `--kdf`          | `argon2id`       | KDF: `argon2id`, `scrypt`, `pbkdf2-sha256`                    |
+| `--kdf-time`     | `3`              | Argon2id time parameter                                       |
+| `--kdf-memory`   | `65536`          | Argon2id memory in KiB (64 MB default)                        |
+| `--recipient`    |                  | Recipient PEM public key (hybrid, repeatable)                 |
+| `--compress`     | `none`           | Pre-encryption compression: `none`, `gzip`, `zstd`            |
+| `--split-shares` |                  | Split key into N Shamir shares (requires `--split-threshold`) |
+| `--split-threshold` |               | K: minimum shares to reconstruct the key                      |
+| `--stdin`        |                  | Read plaintext from standard input                            |
+| `--stdout`       |                  | Write bundle to standard output                               |
 
 When using `--password`, no key file is generated -- the key is derived from your password using the selected KDF. When using a key file, it is base64-encoded with a `b64:` prefix. Store either securely.
 
 Multiple `--recipient` flags enable multi-recipient encryption: one random DEK is generated and wrapped separately for each recipient. Each recipient can decrypt independently with their own private key.
+
+When `--split-shares` and `--split-threshold` are set, the encryption key is split into N Shamir shares using GF(256) polynomial splitting. No single key file is written; instead, N share files are created. Reconstruct the key with `combine-key` before decrypting.
 
 Supported ciphers (all use 32-byte keys and chunked streaming with 64 KB chunks):
 
@@ -265,6 +278,34 @@ vaultpack verify-integrity --in <bundle> --privkey recipient.key
 
 Decrypts the bundle, re-hashes the recovered plaintext, and compares it with the `plaintext_hash` in the manifest. This confirms end-to-end integrity: the decrypted content matches what was originally protected. Exits `0` on match, `10` on mismatch.
 
+### `split-key` -- Split a key into Shamir shares
+
+```bash
+vaultpack split-key --in <keyfile> --shares 5 --threshold 3
+```
+
+| Flag          | Default    | Description                                      |
+| ------------- | ---------- | ------------------------------------------------ |
+| `--in`        | (required) | Path to the key file to split                    |
+| `--shares`    | `5`        | Total number of shares (N), range [2..255]       |
+| `--threshold` | `3`        | Minimum shares to reconstruct (K), range [2..N]  |
+| `--out-dir`   |            | Directory for share files (default: same as key) |
+
+Produces N share files named `<keyfile>.share1` through `<keyfile>.shareN`. Each share encodes its index, threshold, total, and a checksum for tamper detection.
+
+### `combine-key` -- Reconstruct a key from Shamir shares
+
+```bash
+vaultpack combine-key --share data.key.share1 --share data.key.share3 --share data.key.share5 --out data.key
+```
+
+| Flag      | Default    | Description                                         |
+| --------- | ---------- | --------------------------------------------------- |
+| `--share` | (required) | Path to a share file (repeat for each share)        |
+| `--out`   | (required) | Output path for the reconstructed key               |
+
+The threshold K is read from the share metadata. Provide at least K shares. Duplicate shares, tampered shares, and insufficient shares are detected and rejected.
+
 ### Global Flags
 
 | Flag        | Description                  |
@@ -321,7 +362,8 @@ The manifest records the base nonce, the authentication tag of the final chunk, 
 - **Forward secrecy**: ECDH-based hybrid schemes use ephemeral keys; compromising the recipient's long-term key does not reveal past DEKs
 - **Compression**: optional pre-encryption gzip/zstd; data is compressed *before* encryption so the ciphertext reveals no compression-ratio side channel
 - **Timestamps**: signing records an RFC 3339 UTC timestamp in the manifest (`signed_at`)
-- **Manifest versioning**: v1 for basic bundles, v2 when using compression or multi-recipient (backward-compatible reader)
+- **Shamir's Secret Sharing**: GF(256) polynomial splitting; K-of-N threshold with checksum-based tamper detection. Each byte is split independently; fewer than K shares reveal zero information
+- **Manifest versioning**: v1 for basic bundles, v2 when using compression, multi-recipient, or key splitting (backward-compatible reader)
 - Passwords, keys, and private keys are never stored inside the bundle
 
 ## Development

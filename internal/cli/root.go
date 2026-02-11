@@ -53,6 +53,8 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newSignCmd())
 	root.AddCommand(newVerifyCmd())
 	root.AddCommand(newVerifyIntegrityCmd())
+	root.AddCommand(newSplitKeyCmd())
+	root.AddCommand(newCombineKeyCmd())
 	root.AddCommand(newMenuCmd())
 
 	return root

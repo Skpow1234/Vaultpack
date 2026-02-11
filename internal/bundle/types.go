@@ -30,9 +30,10 @@ type Manifest struct {
 	Plaintext     PlaintextHash   `json:"plaintext_hash"`
 	Encryption    EncryptionMeta  `json:"encryption"`
 	Ciphertext    CiphertextMeta  `json:"ciphertext"`
-	SignatureAlgo *string         `json:"signature_algo,omitempty"` // nil = unsigned or legacy ed25519
-	SignedAt      *string         `json:"signed_at,omitempty"`      // RFC 3339 timestamp of signature
-	Compress      *CompressionMeta `json:"compression,omitempty"`   // nil = no compression
+	SignatureAlgo *string          `json:"signature_algo,omitempty"` // nil = unsigned or legacy ed25519
+	SignedAt      *string          `json:"signed_at,omitempty"`      // RFC 3339 timestamp of signature
+	Compress      *CompressionMeta `json:"compression,omitempty"`    // nil = no compression
+	KeySplitting  *KeySplitMeta   `json:"key_splitting,omitempty"`  // nil = key not split
 }
 
 // InputMeta describes the original plaintext file.
@@ -99,6 +100,13 @@ type KDFMeta struct {
 
 	// PBKDF2 parameters.
 	Iterations int `json:"iterations,omitempty"`
+}
+
+// KeySplitMeta records that the encryption key was split using Shamir's Secret Sharing.
+type KeySplitMeta struct {
+	Scheme    string `json:"scheme"`    // "shamir-gf256"
+	Threshold int    `json:"threshold"` // K: minimum shares needed
+	Total     int    `json:"total"`     // N: total shares created
 }
 
 // IsChunked returns true if the encryption uses chunked streaming mode.

@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
@@ -27,6 +28,8 @@ func newMenuCmd() *cobra.Command {
 					huh.NewOption("Sign a .vpack bundle", "sign"),
 				huh.NewOption("Verify a .vpack bundle", "verify"),
 				huh.NewOption("Verify integrity (decrypt + hash check)", "verify-integrity"),
+				huh.NewOption("Split a key into Shamir shares", "split-key"),
+				huh.NewOption("Combine Shamir shares into a key", "combine-key"),
 				huh.NewOption("Exit", "exit"),
 				).
 				Value(&action).
@@ -52,6 +55,10 @@ func newMenuCmd() *cobra.Command {
 				return runVerifyMenu()
 		case "verify-integrity":
 			return runVerifyIntegrityMenu()
+		case "split-key":
+			return runSplitKeyMenu()
+		case "combine-key":
+			return runCombineKeyMenu()
 		case "exit":
 			fmt.Println("Goodbye.")
 			return nil
@@ -526,6 +533,94 @@ func runVerifyIntegrityMenu() error {
 		args = append(args, "--password", password)
 	case "privkey":
 		args = append(args, "--privkey", privKeyFile)
+	}
+
+	root := NewRootCmd()
+	root.SetArgs(args)
+	return root.Execute()
+}
+
+func runSplitKeyMenu() error {
+	var (
+		inFile       string
+		sharesStr    string
+		thresholdStr string
+		outDir       string
+	)
+
+	err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Path to key file to split").
+				Placeholder("/path/to/data.key").
+				Value(&inFile),
+			huh.NewInput().
+				Title("Total shares (N)").
+				Placeholder("5").
+				Value(&sharesStr),
+			huh.NewInput().
+				Title("Threshold (K: minimum shares to reconstruct)").
+				Placeholder("3").
+				Value(&thresholdStr),
+			huh.NewInput().
+				Title("Output directory for share files (leave blank for same dir)").
+				Placeholder("").
+				Value(&outDir),
+		),
+	).Run()
+	if err != nil {
+		return err
+	}
+
+	args := []string{"split-key", "--in", inFile, "--shares", sharesStr, "--threshold", thresholdStr}
+	if outDir != "" {
+		args = append(args, "--out-dir", outDir)
+	}
+
+	root := NewRootCmd()
+	root.SetArgs(args)
+	return root.Execute()
+}
+
+func runCombineKeyMenu() error {
+	var (
+		numSharesStr string
+		outFile      string
+	)
+
+	err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("How many share files do you have?").
+				Placeholder("3").
+				Value(&numSharesStr),
+			huh.NewInput().
+				Title("Output file for reconstructed key").
+				Placeholder("/path/to/data.key").
+				Value(&outFile),
+		),
+	).Run()
+	if err != nil {
+		return err
+	}
+
+	n, err := strconv.Atoi(numSharesStr)
+	if err != nil || n < 1 {
+		return fmt.Errorf("invalid number of shares: %q", numSharesStr)
+	}
+
+	args := []string{"combine-key", "--out", outFile}
+	for i := 0; i < n; i++ {
+		var sharePath string
+		err := huh.NewInput().
+			Title(fmt.Sprintf("Path to share %d", i+1)).
+			Placeholder(fmt.Sprintf("data.key.share%d", i+1)).
+			Value(&sharePath).
+			Run()
+		if err != nil {
+			return err
+		}
+		args = append(args, "--share", sharePath)
 	}
 
 	root := NewRootCmd()

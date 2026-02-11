@@ -105,6 +105,12 @@ func newInspectCmd() *cobra.Command {
 				printer.Human("  Algo:     %s", m.Compress.Algo)
 				printer.Human("  Original: %d bytes", m.Compress.OriginalSize)
 			}
+			if m.KeySplitting != nil {
+				printer.Human("")
+				printer.Human("Key Splitting:")
+				printer.Human("  Scheme:    %s", m.KeySplitting.Scheme)
+				printer.Human("  Threshold: %d-of-%d", m.KeySplitting.Threshold, m.KeySplitting.Total)
+			}
 			if m.SignatureAlgo != nil {
 				printer.Human("")
 				printer.Human("Signature:")
