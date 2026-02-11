@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Skpow1234/Vaultpack/internal/audit"
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
 	"github.com/Skpow1234/Vaultpack/internal/util"
@@ -21,8 +22,15 @@ func newVerifyCmd() *cobra.Command {
 		Use:   "verify",
 		Short: "Verify a .vpack bundle signature",
 		Long:  "Verify the detached signature of a .vpack bundle against the canonical manifest and payload hash.\n\nThe signing algorithm is auto-detected from the manifest's signature_algo field or the public key format.",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			printer := NewPrinter(flagJSON, flagQuiet)
+			defer func() {
+				errMsg := ""
+				if err != nil {
+					errMsg = err.Error()
+				}
+				auditLog(audit.OpVerify, inFile, "", "", "", err == nil, errMsg)
+			}()
 
 			if inFile == "" {
 				return fmt.Errorf("--in is required")
@@ -38,6 +46,7 @@ func newVerifyCmd() *cobra.Command {
 			}
 
 			if br.Signature == nil {
+				auditLog(audit.OpVerify, inFile, "", "", "", false, "bundle is not signed")
 				printer.Error(util.ErrVerifyFailed, "bundle is not signed (no signature.sig)")
 				os.Exit(util.ExitVerifyFailed)
 				return nil
@@ -73,6 +82,7 @@ func newVerifyCmd() *cobra.Command {
 				return fmt.Errorf("verify: %w", err)
 			}
 			if !valid {
+				auditLog(audit.OpVerify, inFile, "", "", "", false, "signature verification failed")
 				printer.Error(util.ErrVerifyFailed, "signature verification failed")
 				os.Exit(util.ExitVerifyFailed)
 				return nil

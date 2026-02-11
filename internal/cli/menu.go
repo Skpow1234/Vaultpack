@@ -33,6 +33,10 @@ func newMenuCmd() *cobra.Command {
 				huh.NewOption("Batch protect a directory", "batch-protect"),
 				huh.NewOption("Batch decrypt a directory", "batch-decrypt"),
 				huh.NewOption("Batch inspect a directory", "batch-inspect"),
+				huh.NewOption("Attest bundle (provenance)", "attest"),
+				huh.NewOption("Seal directory (Merkle root)", "seal"),
+				huh.NewOption("Verify seal", "verify-seal"),
+				huh.NewOption("Export audit log", "audit-export"),
 				huh.NewOption("Exit", "exit"),
 				).
 				Value(&action).
@@ -68,6 +72,14 @@ func newMenuCmd() *cobra.Command {
 			return runBatchDecryptMenu()
 		case "batch-inspect":
 			return runBatchInspectMenu()
+		case "attest":
+			return runAttestMenu()
+		case "seal":
+			return runSealMenu()
+		case "verify-seal":
+			return runVerifySealMenu()
+		case "audit-export":
+			return runAuditExportMenu()
 		case "exit":
 			fmt.Println("Goodbye.")
 			return nil
@@ -777,6 +789,109 @@ func runBatchInspectMenu() error {
 
 	root := NewRootCmd()
 	root.SetArgs([]string{"batch-inspect", "--dir", srcDir})
+	return root.Execute()
+}
+
+func runAttestMenu() error {
+	var inFile, outFile string
+	err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Input .vpack bundle").
+				Placeholder("bundle.vpack").
+				Value(&inFile),
+			huh.NewInput().
+				Title("Output provenance file (leave blank for stdout)").
+				Placeholder("provenance.json").
+				Value(&outFile),
+		),
+	).Run()
+	if err != nil {
+		return err
+	}
+	args := []string{"attest", "--in", inFile}
+	if outFile != "" {
+		args = append(args, "--out", outFile)
+	}
+	root := NewRootCmd()
+	root.SetArgs(args)
+	return root.Execute()
+}
+
+func runSealMenu() error {
+	var dir, outFile string
+	err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Directory with .vpack bundles").
+				Placeholder("./bundles/").
+				Value(&dir),
+			huh.NewInput().
+				Title("Output file for Merkle root (leave blank to print)").
+				Placeholder("root.txt").
+				Value(&outFile),
+		),
+	).Run()
+	if err != nil {
+		return err
+	}
+	args := []string{"seal", "--dir", dir}
+	if outFile != "" {
+		args = append(args, "--out", outFile)
+	}
+	root := NewRootCmd()
+	root.SetArgs(args)
+	return root.Execute()
+}
+
+func runVerifySealMenu() error {
+	var dir, root string
+	err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Directory with .vpack bundles").
+				Placeholder("./bundles/").
+				Value(&dir),
+			huh.NewInput().
+				Title("Expected Merkle root (hex)").
+				Placeholder("paste root from seal").
+				Value(&root),
+		),
+	).Run()
+	if err != nil {
+		return err
+	}
+	rootCmd := NewRootCmd()
+	rootCmd.SetArgs([]string{"verify-seal", "--dir", dir, "--root", root})
+	return rootCmd.Execute()
+}
+
+func runAuditExportMenu() error {
+	var logPath, format string
+	err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Audit log file").
+				Placeholder("or set VAULTPACK_AUDIT_LOG").
+				Value(&logPath),
+			huh.NewSelect[string]().
+				Title("Format").
+				Options(
+					huh.NewOption("JSON", "json"),
+					huh.NewOption("CSV", "csv"),
+				).
+				Value(&format),
+		),
+	).Run()
+	if err != nil {
+		return err
+	}
+	args := []string{"audit", "export", "--format", format}
+	if logPath != "" {
+		args = append(args, "--log", logPath)
+	}
+	root := NewRootCmd()
+	root.SetArgs(args)
 	return root.Execute()
 }
 

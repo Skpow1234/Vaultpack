@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Skpow1234/Vaultpack/internal/audit"
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
 	"github.com/Skpow1234/Vaultpack/internal/util"
@@ -44,8 +45,20 @@ func newProtectCmd() *cobra.Command {
 		Use:   "protect",
 		Short: "Encrypt a file into a .vpack bundle",
 		Long:  "Hash the plaintext, optionally compress, encrypt with an AEAD cipher, and write a portable .vpack bundle.\n\nSupported ciphers: aes-256-gcm (default), chacha20-poly1305, xchacha20-poly1305.\nCompression: --compress gzip|zstd (default: none).\nMultiple recipients: --recipient alice.pem --recipient bob.pem.\nKey splitting: --split-shares 5 --split-threshold 3 (Shamir SSS).\n\nAzure: use az://container/blob paths for --in and/or --out.\n\nUse --stdin to read from standard input and --stdout to write the bundle to standard output.",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			printer := NewPrinter(flagJSON, flagQuiet)
+			var auditOutDesc, auditKeyFP string
+			defer func() {
+				inDesc := inFile
+				if useStdin {
+					inDesc = "stdin"
+				}
+				errMsg := ""
+				if err != nil {
+					errMsg = err.Error()
+				}
+				auditLog(audit.OpProtect, inDesc, auditOutDesc, "", auditKeyFP, err == nil, errMsg)
+			}()
 
 			if inFile == "" && !useStdin {
 				return fmt.Errorf("--in or --stdin is required")
@@ -562,6 +575,8 @@ func newProtectCmd() *cobra.Command {
 			if useStdout {
 				outDesc = "stdout"
 			}
+			auditOutDesc = outDesc
+			auditKeyFP = keyDigest
 			switch printer.Mode {
 			case OutputJSON:
 				result := map[string]any{

@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	payloadEntry   = "payload.bin"
-	manifestEntry  = "manifest.json"
-	signatureEntry = "signature.sig"
+	payloadEntry    = "payload.bin"
+	manifestEntry   = "manifest.json"
+	signatureEntry  = "signature.sig"
+	provenanceEntry = "provenance.json"
 )
 
 // WriteParams holds everything needed to create a .vpack bundle.
@@ -213,4 +214,80 @@ func StreamToBytes(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// AddProvenanceToBundle adds provenance.json to an existing bundle (rewrites the file).
+func AddProvenanceToBundle(path string, provenanceJSON []byte) error {
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		return fmt.Errorf("open bundle: %w", err)
+	}
+	defer zr.Close()
+
+	tmpPath := path + ".tmp"
+	tmpF, err := os.Create(tmpPath)
+	if err != nil {
+		return fmt.Errorf("create temp: %w", err)
+	}
+	zw := zip.NewWriter(tmpF)
+
+	// Copy existing entries, skip if we're replacing provenance.
+	for _, f := range zr.File {
+		if f.Name == provenanceEntry {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			zw.Close()
+			tmpF.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("open %s: %w", f.Name, err)
+		}
+		w, err := zw.Create(f.Name)
+		if err != nil {
+			rc.Close()
+			zw.Close()
+			tmpF.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("create %s: %w", f.Name, err)
+		}
+		if _, err := io.Copy(w, rc); err != nil {
+			rc.Close()
+			zw.Close()
+			tmpF.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("copy %s: %w", f.Name, err)
+		}
+		rc.Close()
+	}
+
+	// Add provenance.json.
+	pw, err := zw.Create(provenanceEntry)
+	if err != nil {
+		zw.Close()
+		tmpF.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("create provenance entry: %w", err)
+	}
+	if _, err := pw.Write(provenanceJSON); err != nil {
+		zw.Close()
+		tmpF.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("write provenance: %w", err)
+	}
+
+	if err := zw.Close(); err != nil {
+		tmpF.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := tmpF.Close(); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("replace bundle: %w", err)
+	}
+	return nil
 }

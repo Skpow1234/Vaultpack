@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Skpow1234/Vaultpack/internal/audit"
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
 	"github.com/Skpow1234/Vaultpack/internal/util"
@@ -29,8 +30,17 @@ func newDecryptCmd() *cobra.Command {
 		Use:   "decrypt",
 		Short: "Decrypt a .vpack bundle",
 		Long:  "Read a .vpack bundle, decrypt the payload using the provided key, and write the plaintext.\n\nAzure: use az://container/blob paths for --in and/or --out.\n\nUse --stdout to write decrypted plaintext to standard output.",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			printer := NewPrinter(flagJSON, flagQuiet)
+			auditInFile := inFile
+			var auditOutDesc, auditKeyFP string
+			defer func() {
+				errMsg := ""
+				if err != nil {
+					errMsg = err.Error()
+				}
+				auditLog(audit.OpDecrypt, auditInFile, auditOutDesc, "", auditKeyFP, err == nil, errMsg)
+			}()
 
 			if inFile == "" {
 				return fmt.Errorf("--in is required")
@@ -313,15 +323,17 @@ func newDecryptCmd() *cobra.Command {
 			if useStdout {
 				outDesc = "stdout"
 			}
+			auditOutDesc = outDesc
+			auditKeyFP = br.Manifest.Encryption.KeyID.DigestB64
 			switch printer.Mode {
 			case OutputJSON:
 				return printer.JSON(map[string]any{
-					"bundle": inFile,
+					"bundle": auditInFile,
 					"output": outDesc,
 					"size":   len(plaintext),
 				})
 			default:
-				printer.Human("Decrypted: %s", inFile)
+				printer.Human("Decrypted: %s", auditInFile)
 				printer.Human("Output:    %s", outDesc)
 				printer.Human("Size:      %d bytes", len(plaintext))
 			}

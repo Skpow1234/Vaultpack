@@ -81,6 +81,12 @@ vaultpack batch-decrypt --dir ./encrypted/ --out-dir ./decrypted/ --key ./encryp
 # Batch inspect (summary of all bundles)
 vaultpack batch-inspect --dir ./encrypted/
 
+# Audit trail and integrity
+vaultpack attest --in config.vpack --out provenance.json
+vaultpack seal --dir ./bundles/ --out merkle-root.txt
+vaultpack verify-seal --dir ./bundles/ --root $(cat merkle-root.txt)
+vaultpack audit export --format csv --operation protect
+
 # Azure Blob Storage: encrypt directly from/to Azure
 vaultpack protect --in az://mycontainer/data.csv --out az://mycontainer/data.vpack --azure-account mystorageaccount
 vaultpack decrypt --in az://mycontainer/data.vpack --out az://mycontainer/data.csv --key data.key --azure-account mystorageaccount
@@ -406,6 +412,41 @@ vaultpack protect --in az://container/file.csv --out az://container/file.vpack
 | `--azure-account`           | Azure storage account name (or `AZURE_STORAGE_ACCOUNT` env var)     |
 | `--azure-connection-string` | Azure storage connection string (or `AZURE_STORAGE_CONNECTION_STRING` env var) |
 
+### Audit trail and integrity
+
+**Audit log**: Use `--audit-log <path>` or `VAULTPACK_AUDIT_LOG` to append a JSON-lines log of every operation (protect, decrypt, sign, verify, attest, seal, etc.). Each line includes timestamp, operation, input/output paths, key fingerprint, user, hostname, and success/error.
+
+```bash
+export VAULTPACK_AUDIT_LOG=/var/log/vaultpack-audit.jsonl
+vaultpack protect --in data.csv --out data.vpack
+
+# Export audit log to CSV or JSON (with optional filters)
+vaultpack audit export --format csv --since 2026-01-01 --operation protect
+vaultpack audit export --log /var/log/vaultpack-audit.jsonl --format json --key-fingerprint abc123
+```
+
+**Provenance (SLSA-style)**: Generate a provenance statement for a bundle (builder identity, build timestamp, source hash, environment).
+
+```bash
+vaultpack attest --in bundle.vpack --out provenance.json
+vaultpack attest --in bundle.vpack --embed   # store provenance.json inside the bundle
+```
+
+**Merkle seal**: Create a Merkle root over all `.vpack` files in a directory; later verify that no bundles were added, removed, or modified.
+
+```bash
+vaultpack seal --dir ./bundles/ --out root.txt
+vaultpack verify-seal --dir ./bundles/ --root $(cat root.txt)
+```
+
+| Command / flag      | Description                                                |
+| ------------------- | ---------------------------------------------------------- |
+| `--audit-log`       | Append-only audit log file (or `VAULTPACK_AUDIT_LOG` env)  |
+| `vaultpack attest`  | Generate SLSA-style provenance for a bundle                |
+| `vaultpack seal`    | Compute Merkle root over directory of .vpack files         |
+| `vaultpack verify-seal` | Verify directory against a previously sealed root      |
+| `vaultpack audit export` | Export audit log to CSV/JSON with filters             |
+
 ### Global Flags
 
 | Flag        | Description                  |
@@ -413,6 +454,7 @@ vaultpack protect --in az://container/file.csv --out az://container/file.vpack
 | `--json`    | Output results as JSON       |
 | `--quiet`   | Minimal output (errors only) |
 | `--verbose` | Enable debug logging         |
+| `--audit-log` | Audit log file path        |
 | `--version` | Print version                |
 
 ## Bundle Format
@@ -423,7 +465,8 @@ A `.vpack` file is a ZIP archive containing:
 artifact.vpack
 ├── payload.bin        # ciphertext
 ├── manifest.json      # encryption params, hashes, metadata
-└── signature.sig      # optional detached signature
+├── signature.sig      # optional detached signature
+└── provenance.json    # optional SLSA-style provenance (from attest --embed)
 ```
 
 ## Security
@@ -466,6 +509,9 @@ The manifest records the base nonce, the authentication tag of the final chunk, 
 - **Batch operations**: parallel processing with configurable worker count, per-file or shared keys, glob include/exclude filters, dry-run preview, and `batch-manifest.json` for auditing
 - **Manifest versioning**: v1 for basic bundles, v2 when using compression, multi-recipient, or key splitting (backward-compatible reader)
 - **Azure Blob Storage**: native integration via `azblob` SDK; supports `DefaultAzureCredential` (managed identity, env vars, CLI token) and connection strings; blobs are downloaded to temp files for processing and cleaned up automatically
+- **Audit trail**: append-only JSON-lines log of every operation (timestamp, operation, paths, key fingerprint, user, hostname, success/error); export to CSV/JSON with filters
+- **Provenance**: SLSA-style attestation (builder, timestamp, source hash, environment); optional embedding in bundle
+- **Merkle seal**: deterministic Merkle root over a directory of .vpack files; verify-seal detects any add/remove/modify
 - Passwords, keys, and private keys are never stored inside the bundle
 
 ## Development
@@ -495,6 +541,7 @@ internal/cli/        # Cobra command definitions
 internal/crypto/     # AEAD, hashing, key management
 internal/bundle/     # ZIP I/O, manifest read/write/validate
 internal/azure/      # Azure Blob Storage client
+internal/audit/      # Audit log, Merkle seal, provenance
 internal/util/       # Errors, encoding, exit codes
 testdata/            # Test fixtures and golden files
 ```

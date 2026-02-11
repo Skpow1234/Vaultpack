@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Skpow1234/Vaultpack/internal/audit"
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
 	"github.com/Skpow1234/Vaultpack/internal/util"
@@ -22,8 +23,15 @@ func newSignCmd() *cobra.Command {
 		Use:   "sign",
 		Short: "Sign a .vpack bundle",
 		Long:  "Add a detached signature to a .vpack bundle.\n\nThe signature covers the canonical manifest and the SHA-256 of the payload.\nSupported algorithms: ed25519 (default), ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096.\nThe algorithm is auto-detected from the key if --algo is not specified.",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			printer := NewPrinter(flagJSON, flagQuiet)
+			defer func() {
+				errMsg := ""
+				if err != nil {
+					errMsg = err.Error()
+				}
+				auditLog(audit.OpSign, inFile, inFile, "", "", err == nil, errMsg)
+			}()
 
 			if inFile == "" {
 				return fmt.Errorf("--in is required")

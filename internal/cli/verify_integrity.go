@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Skpow1234/Vaultpack/internal/audit"
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
 	"github.com/Skpow1234/Vaultpack/internal/util"
@@ -29,8 +30,15 @@ with the plaintext_hash recorded in the manifest. This confirms end-to-end integ
 the decrypted content is exactly what was originally protected.
 
 Requires one of --key, --password, or --privkey.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			printer := NewPrinter(flagJSON, flagQuiet)
+			defer func() {
+				errMsg := ""
+				if err != nil {
+					errMsg = err.Error()
+				}
+				auditLog(audit.OpVerifyIntegrity, inFile, "", "", "", err == nil, errMsg)
+			}()
 
 			if inFile == "" {
 				return fmt.Errorf("--in is required")
@@ -97,6 +105,7 @@ Requires one of --key, --password, or --privkey.`,
 						}
 					}
 					if key == nil {
+						auditLog(audit.OpVerifyIntegrity, inFile, "", "", "", false, "no matching recipient found")
 						printer.Error(util.ErrDecryptFailed, "no matching recipient found")
 						os.Exit(util.ExitDecryptFailed)
 						return nil
@@ -111,6 +120,7 @@ Requires one of --key, --password, or --privkey.`,
 					}
 					key, err = crypto.HybridDecapsulate(h.Scheme, privKeyFile, ephPub, wrappedDEK)
 					if err != nil {
+						auditLog(audit.OpVerifyIntegrity, inFile, "", "", "", false, "hybrid decapsulation failed")
 						printer.Error(util.ErrDecryptFailed, fmt.Sprintf("hybrid decapsulation failed: %v", err))
 						os.Exit(util.ExitDecryptFailed)
 						return nil
@@ -150,6 +160,7 @@ Requires one of --key, --password, or --privkey.`,
 			// Verify key fingerprint.
 			_, keyDigest := crypto.KeyFingerprint(key)
 			if keyDigest != br.Manifest.Encryption.KeyID.DigestB64 {
+				auditLog(audit.OpVerifyIntegrity, inFile, "", "", "", false, "key fingerprint mismatch")
 				if usePassword {
 					printer.Error(util.ErrDecryptFailed, "wrong password (key fingerprint mismatch)")
 				} else {
@@ -186,6 +197,7 @@ Requires one of --key, --password, or --privkey.`,
 					cipherName,
 				)
 				if err != nil {
+					auditLog(audit.OpVerifyIntegrity, inFile, "", "", "", false, "decryption failed")
 					printer.Error(err, "decryption failed")
 					os.Exit(util.ExitDecryptFailed)
 					return nil
@@ -202,6 +214,7 @@ Requires one of --key, --password, or --privkey.`,
 				}
 				plaintext, err = crypto.DecryptAEAD(cipherName, br.Ciphertext, key, nonce, tag, aad)
 				if err != nil {
+					auditLog(audit.OpVerifyIntegrity, inFile, "", "", "", false, "decryption failed")
 					printer.Error(err, "decryption failed")
 					os.Exit(util.ExitDecryptFailed)
 					return nil
@@ -249,6 +262,7 @@ Requires one of --key, --password, or --privkey.`,
 			}
 
 			if !match {
+				auditLog(audit.OpVerifyIntegrity, inFile, "", "", "", false, "plaintext hash mismatch")
 				os.Exit(util.ExitVerifyFailed)
 			}
 			return nil

@@ -15,6 +15,7 @@ var (
 	flagJSON    bool
 	flagQuiet   bool
 	flagVerbose bool
+	flagAuditLog string
 )
 
 // NewRootCmd creates the top-level cobra command with global flags.
@@ -48,6 +49,9 @@ func NewRootCmd() *cobra.Command {
 	pf.StringVar(&azureAccountName, "azure-account", "", "Azure storage account name (or AZURE_STORAGE_ACCOUNT env)")
 	pf.StringVar(&azureConnectionString, "azure-connection-string", "", "Azure storage connection string (or AZURE_STORAGE_CONNECTION_STRING env)")
 
+	// Audit trail.
+	pf.StringVar(&flagAuditLog, "audit-log", "", "Append-only audit log file (or VAULTPACK_AUDIT_LOG env)")
+
 	// Register subcommands.
 	root.AddCommand(newHashCmd())
 	root.AddCommand(newProtectCmd())
@@ -62,6 +66,10 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newBatchProtectCmd())
 	root.AddCommand(newBatchDecryptCmd())
 	root.AddCommand(newBatchInspectCmd())
+	root.AddCommand(newAttestCmd())
+	root.AddCommand(newSealCmd())
+	root.AddCommand(newVerifySealCmd())
+	root.AddCommand(newAuditCmd())
 	root.AddCommand(newMenuCmd())
 
 	return root
