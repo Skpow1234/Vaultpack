@@ -28,7 +28,7 @@ func newDecryptCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "decrypt",
 		Short: "Decrypt a .vpack bundle",
-		Long:  "Read a .vpack bundle, decrypt the payload using the provided key, and write the plaintext.\n\nUse --stdout to write decrypted plaintext to standard output.",
+		Long:  "Read a .vpack bundle, decrypt the payload using the provided key, and write the plaintext.\n\nAzure: use az://container/blob paths for --in and/or --out.\n\nUse --stdout to write decrypted plaintext to standard output.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := NewPrinter(flagJSON, flagQuiet)
 
@@ -37,6 +37,28 @@ func newDecryptCmd() *cobra.Command {
 			}
 			if outFile == "" && !useStdout {
 				return fmt.Errorf("--out or --stdout is required")
+			}
+
+			// Azure: download input bundle from blob if az:// URI.
+			var azInputCleanup func()
+			if isAzure(inFile) {
+				tmpPath, err := azureDownload(inFile)
+				if err != nil {
+					return fmt.Errorf("download from Azure: %w", err)
+				}
+				azInputCleanup = func() { os.Remove(tmpPath) }
+				inFile = tmpPath
+			}
+			defer func() {
+				if azInputCleanup != nil {
+					azInputCleanup()
+				}
+			}()
+
+			// Track whether the output should be uploaded to Azure.
+			azOutURI := ""
+			if isAzure(outFile) {
+				azOutURI = outFile
 			}
 
 			// When writing to stdout, redirect printer to stderr.
@@ -261,23 +283,33 @@ func newDecryptCmd() *cobra.Command {
 			}
 
 			// Write plaintext.
-			var output io.Writer
-			if useStdout {
-				output = os.Stdout
-			} else {
-				f, err := os.Create(outFile)
-				if err != nil {
-					return fmt.Errorf("create output: %w", err)
+			if azOutURI != "" {
+				// Upload directly to Azure.
+				if err := azureUploadBytes(plaintext, azOutURI); err != nil {
+					return fmt.Errorf("upload to Azure: %w", err)
 				}
-				defer f.Close()
-				output = f
-			}
-			if _, err := output.Write(plaintext); err != nil {
-				return fmt.Errorf("write output: %w", err)
+			} else {
+				var output io.Writer
+				if useStdout {
+					output = os.Stdout
+				} else {
+					f, err := os.Create(outFile)
+					if err != nil {
+						return fmt.Errorf("create output: %w", err)
+					}
+					defer f.Close()
+					output = f
+				}
+				if _, err := output.Write(plaintext); err != nil {
+					return fmt.Errorf("write output: %w", err)
+				}
 			}
 
 			// Output.
 			outDesc := outFile
+			if azOutURI != "" {
+				outDesc = azOutURI
+			}
 			if useStdout {
 				outDesc = "stdout"
 			}

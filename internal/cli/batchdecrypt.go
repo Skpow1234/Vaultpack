@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -32,9 +31,12 @@ the directory structure. The .vpack extension is stripped from the output filena
 
 Use a shared key (--key), per-file keys (auto-detected alongside bundles), or a password.
 
+Azure: use az://container/prefix/ paths for --dir and/or --out-dir.
+
 Example:
   vaultpack batch-decrypt --dir ./encrypted/ --out-dir ./decrypted/ --key batch.key
-  vaultpack batch-decrypt --dir ./encrypted/ --out-dir ./decrypted/ --password "passphrase"`,
+  vaultpack batch-decrypt --dir ./encrypted/ --out-dir ./decrypted/ --password "passphrase"
+  vaultpack batch-decrypt --dir az://mycontainer/encrypted/ --out-dir az://mycontainer/decrypted/ --key batch.key`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := NewPrinter(flagJSON, flagQuiet)
 
@@ -43,6 +45,34 @@ Example:
 			}
 			if outDir == "" {
 				return fmt.Errorf("--out-dir is required")
+			}
+
+			// Azure source: download blobs to temp dir.
+			var azSrcCleanup func()
+			if isAzure(srcDir) {
+				localDir, cleanup, err := azureDownloadDir(srcDir)
+				if err != nil {
+					return fmt.Errorf("download from Azure: %w", err)
+				}
+				azSrcCleanup = cleanup
+				srcDir = localDir
+			}
+			defer func() {
+				if azSrcCleanup != nil {
+					azSrcCleanup()
+				}
+			}()
+
+			// Azure output: write to temp dir, upload after.
+			azOutURI := ""
+			if isAzure(outDir) {
+				azOutURI = outDir
+				tmpOut, err := os.MkdirTemp("", "vaultpack-az-bdec-out-*")
+				if err != nil {
+					return fmt.Errorf("create temp output dir: %w", err)
+				}
+				defer os.RemoveAll(tmpOut)
+				outDir = tmpOut
 			}
 
 			// Resolve password from file.
@@ -233,6 +263,19 @@ Example:
 				printer.Error(err, "failed to write batch manifest")
 			}
 
+			// Upload results to Azure if output was az://.
+			if azOutURI != "" {
+				if err := azureUploadDir(outDir, azOutURI); err != nil {
+					return fmt.Errorf("upload batch results to Azure: %w", err)
+				}
+			}
+
+			// Display output directory.
+			displayOutDir := outDir
+			if azOutURI != "" {
+				displayOutDir = azOutURI
+			}
+
 			// Output.
 			switch printer.Mode {
 			case OutputJSON:
@@ -245,7 +288,7 @@ Example:
 						printer.Human("  FAIL: %s — %s", r.RelPath, r.Error)
 					}
 				}
-				printer.Human("Batch manifest: %s", filepath.Join(outDir, "batch-manifest.json"))
+				printer.Human("Batch manifest: %s", displayOutDir+"/batch-manifest.json")
 			}
 
 			if failed > 0 {

@@ -99,11 +99,12 @@ func runProtectMenu(cmd *cobra.Command) error {
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Input file to protect").
-				Placeholder("/path/to/file").
+				Placeholder("/path/to/file or az://container/blob").
+				Description("Use az:// for Azure Blob Storage").
 				Value(&inFile),
 			huh.NewInput().
 				Title("Output bundle path (leave blank for default)").
-				Placeholder("<input>.vpack").
+				Placeholder("<input>.vpack or az://container/blob.vpack").
 				Value(&outFile),
 			huh.NewSelect[string]().
 				Title("Key mode").
@@ -262,11 +263,12 @@ func runDecryptMenu(cmd *cobra.Command) error {
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Input .vpack bundle").
-				Placeholder("/path/to/bundle.vpack").
+				Placeholder("/path/to/bundle.vpack or az://container/blob.vpack").
+				Description("Use az:// for Azure Blob Storage").
 				Value(&inFile),
 			huh.NewInput().
 				Title("Output plaintext path").
-				Placeholder("/path/to/output").
+				Placeholder("/path/to/output or az://container/blob").
 				Value(&outFile),
 			huh.NewSelect[string]().
 				Title("Decryption method").
@@ -331,7 +333,8 @@ func runInspectMenu() error {
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Input .vpack bundle").
-				Placeholder("/path/to/bundle.vpack").
+				Placeholder("/path/to/bundle.vpack or az://container/blob.vpack").
+				Description("Use az:// for Azure Blob Storage").
 				Value(&inFile),
 			huh.NewConfirm().
 				Title("Output as JSON?").
@@ -650,11 +653,12 @@ func runBatchProtectMenu() error {
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Source directory to encrypt").
-				Placeholder("./exports/").
+				Placeholder("./exports/ or az://container/prefix/").
+				Description("Use az:// for Azure Blob Storage").
 				Value(&srcDir),
 			huh.NewInput().
 				Title("Output directory for .vpack bundles").
-				Placeholder("./encrypted/").
+				Placeholder("./encrypted/ or az://container/prefix/").
 				Value(&outDir),
 			huh.NewSelect[string]().
 				Title("Key mode").
@@ -710,11 +714,12 @@ func runBatchDecryptMenu() error {
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Directory with .vpack bundles").
-				Placeholder("./encrypted/").
+				Placeholder("./encrypted/ or az://container/prefix/").
+				Description("Use az:// for Azure Blob Storage").
 				Value(&srcDir),
 			huh.NewInput().
 				Title("Output directory for decrypted files").
-				Placeholder("./decrypted/").
+				Placeholder("./decrypted/ or az://container/prefix/").
 				Value(&outDir),
 			huh.NewSelect[string]().
 				Title("Decryption method").

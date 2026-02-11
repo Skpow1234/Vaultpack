@@ -81,6 +81,14 @@ vaultpack batch-decrypt --dir ./encrypted/ --out-dir ./decrypted/ --key ./encryp
 # Batch inspect (summary of all bundles)
 vaultpack batch-inspect --dir ./encrypted/
 
+# Azure Blob Storage: encrypt directly from/to Azure
+vaultpack protect --in az://mycontainer/data.csv --out az://mycontainer/data.vpack --azure-account mystorageaccount
+vaultpack decrypt --in az://mycontainer/data.vpack --out az://mycontainer/data.csv --key data.key --azure-account mystorageaccount
+
+# Azure batch operations
+vaultpack batch-protect --dir az://mycontainer/exports/ --out-dir az://mycontainer/encrypted/ --azure-account mystorageaccount
+vaultpack batch-decrypt --dir az://mycontainer/encrypted/ --out-dir az://mycontainer/decrypted/ --key batch.key --azure-account mystorageaccount
+
 # Pipeline: encrypt from stdin, decrypt to stdout
 cat config.json | vaultpack protect --stdin --out config.vpack --key-out config.key
 vaultpack decrypt --in config.vpack --key config.key --stdout > config.json
@@ -362,6 +370,42 @@ vaultpack batch-inspect --dir ./encrypted/ [--json]
 
 Displays a summary of every `.vpack` bundle in the directory, including cipher, hash algorithm, and input file info. If a `batch-manifest.json` is present, its operation summary is also shown.
 
+### Azure Blob Storage
+
+VaultPack supports reading from and writing to Azure Blob Storage using the `az://` URI scheme.
+
+```bash
+# Encrypt a file from Azure, write the bundle back to Azure
+vaultpack protect --in az://container/input.csv --out az://container/output.vpack --azure-account myaccount
+
+# Decrypt a bundle from Azure
+vaultpack decrypt --in az://container/output.vpack --out az://container/result.csv --key file.key --azure-account myaccount
+
+# Inspect a bundle on Azure
+vaultpack inspect --in az://container/output.vpack --azure-account myaccount
+
+# Batch protect from Azure to Azure
+vaultpack batch-protect --dir az://container/data/ --out-dir az://container/encrypted/ --azure-account myaccount
+
+# Using a connection string instead
+export AZURE_STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net"
+vaultpack protect --in az://container/file.csv --out az://container/file.vpack
+```
+
+**URI format**: `az://container/path/to/blob`
+
+**Authentication** (in priority order):
+
+1. `--azure-connection-string` flag or `AZURE_STORAGE_CONNECTION_STRING` env var
+2. `azidentity.DefaultAzureCredential` (managed identity, env vars, Azure CLI token)
+
+**Account resolution**: `--azure-account` flag or `AZURE_STORAGE_ACCOUNT` env var. Required when not using a connection string.
+
+| Flag                        | Description                                                         |
+| --------------------------- | ------------------------------------------------------------------- |
+| `--azure-account`           | Azure storage account name (or `AZURE_STORAGE_ACCOUNT` env var)     |
+| `--azure-connection-string` | Azure storage connection string (or `AZURE_STORAGE_CONNECTION_STRING` env var) |
+
 ### Global Flags
 
 | Flag        | Description                  |
@@ -421,6 +465,7 @@ The manifest records the base nonce, the authentication tag of the final chunk, 
 - **Shamir's Secret Sharing**: GF(256) polynomial splitting; K-of-N threshold with checksum-based tamper detection. Each byte is split independently; fewer than K shares reveal zero information
 - **Batch operations**: parallel processing with configurable worker count, per-file or shared keys, glob include/exclude filters, dry-run preview, and `batch-manifest.json` for auditing
 - **Manifest versioning**: v1 for basic bundles, v2 when using compression, multi-recipient, or key splitting (backward-compatible reader)
+- **Azure Blob Storage**: native integration via `azblob` SDK; supports `DefaultAzureCredential` (managed identity, env vars, CLI token) and connection strings; blobs are downloaded to temp files for processing and cleaned up automatically
 - Passwords, keys, and private keys are never stored inside the bundle
 
 ## Development
@@ -449,6 +494,7 @@ cmd/vaultpack/       # CLI entrypoint
 internal/cli/        # Cobra command definitions
 internal/crypto/     # AEAD, hashing, key management
 internal/bundle/     # ZIP I/O, manifest read/write/validate
+internal/azure/      # Azure Blob Storage client
 internal/util/       # Errors, encoding, exit codes
 testdata/            # Test fixtures and golden files
 ```

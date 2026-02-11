@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
 	"github.com/spf13/cobra"
@@ -13,13 +14,25 @@ func newInspectCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "inspect",
 		Short: "Show manifest details of a .vpack bundle",
-		Long:  "Open a .vpack bundle and display its manifest in human-readable or JSON format.",
+		Long:  "Open a .vpack bundle and display its manifest in human-readable or JSON format.\n\nAzure: use az://container/blob.vpack for --in.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := NewPrinter(flagJSON, flagQuiet)
 
 			if inFile == "" {
 				return fmt.Errorf("--in is required")
 			}
+
+			// Azure: download bundle from blob if az:// URI.
+			displayName := inFile
+			if isAzure(inFile) {
+				tmpPath, err := azureDownload(inFile)
+				if err != nil {
+					return fmt.Errorf("download from Azure: %w", err)
+				}
+				defer os.Remove(tmpPath)
+				inFile = tmpPath
+			}
+			_ = displayName
 
 			m, rawBytes, err := bundle.ReadManifestOnly(inFile)
 			if err != nil {
@@ -32,7 +45,7 @@ func newInspectCmd() *cobra.Command {
 				_, err := printer.Writer.Write(rawBytes)
 				return err
 			default:
-				printer.Human("Bundle:     %s", inFile)
+				printer.Human("Bundle:     %s", displayName)
 				printer.Human("Version:    %s", m.Version)
 				printer.Human("Created:    %s", m.CreatedAt)
 				printer.Human("")

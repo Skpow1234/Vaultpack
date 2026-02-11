@@ -37,10 +37,13 @@ func newBatchProtectCmd() *cobra.Command {
 By default a single shared key is generated for the entire batch.
 Use --per-file-key to generate a unique key for each file.
 
+Azure: use az://container/prefix/ paths for --dir and/or --out-dir.
+
 Example:
   vaultpack batch-protect --dir ./exports/ --out-dir ./encrypted/ --key-out batch.key
   vaultpack batch-protect --dir ./data/ --out-dir ./enc/ --per-file-key --workers 8
-  vaultpack batch-protect --dir ./logs/ --out-dir ./enc/ --include "*.csv" --exclude "*.tmp" --dry-run`,
+  vaultpack batch-protect --dir ./logs/ --out-dir ./enc/ --include "*.csv" --exclude "*.tmp" --dry-run
+  vaultpack batch-protect --dir az://mycontainer/data/ --out-dir az://mycontainer/encrypted/`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := NewPrinter(flagJSON, flagQuiet)
 
@@ -59,6 +62,39 @@ Example:
 			if compressAlgo != crypto.CompressNone && !crypto.SupportedCompression(compressAlgo) {
 				return fmt.Errorf("unsupported compression %q", compressAlgo)
 			}
+
+			// Azure source: download blobs to temp dir.
+			azSrcURI := ""
+			var azSrcCleanup func()
+			if isAzure(srcDir) {
+				azSrcURI = srcDir
+				localDir, cleanup, err := azureDownloadDir(srcDir)
+				if err != nil {
+					return fmt.Errorf("download from Azure: %w", err)
+				}
+				azSrcCleanup = cleanup
+				srcDir = localDir
+			}
+			defer func() {
+				if azSrcCleanup != nil {
+					azSrcCleanup()
+				}
+			}()
+
+			// Azure output: write to temp dir, upload after.
+			azOutURI := ""
+			localOutDir := outDir
+			if isAzure(outDir) {
+				azOutURI = outDir
+				tmpOut, err := os.MkdirTemp("", "vaultpack-az-batch-out-*")
+				if err != nil {
+					return fmt.Errorf("create temp output dir: %w", err)
+				}
+				defer os.RemoveAll(tmpOut)
+				localOutDir = tmpOut
+				outDir = localOutDir
+			}
+			_ = azSrcURI
 
 			// Collect files.
 			files, err := collectFiles(srcDir, include, exclude)
@@ -270,6 +306,19 @@ Example:
 				printer.Error(err, "failed to write batch manifest")
 			}
 
+			// Upload results to Azure if output was az://.
+			if azOutURI != "" {
+				if err := azureUploadDir(outDir, azOutURI); err != nil {
+					return fmt.Errorf("upload batch results to Azure: %w", err)
+				}
+			}
+
+			// Display output directory.
+			displayOutDir := outDir
+			if azOutURI != "" {
+				displayOutDir = azOutURI
+			}
+
 			// Output.
 			switch printer.Mode {
 			case OutputJSON:
@@ -288,7 +337,7 @@ Example:
 						printer.Human("  FAIL: %s — %s", r.RelPath, r.Error)
 					}
 				}
-				printer.Human("Batch manifest: %s", filepath.Join(outDir, "batch-manifest.json"))
+				printer.Human("Batch manifest: %s", displayOutDir+"/batch-manifest.json")
 			}
 
 			if failed > 0 {

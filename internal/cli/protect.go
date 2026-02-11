@@ -43,7 +43,7 @@ func newProtectCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "protect",
 		Short: "Encrypt a file into a .vpack bundle",
-		Long:  "Hash the plaintext, optionally compress, encrypt with an AEAD cipher, and write a portable .vpack bundle.\n\nSupported ciphers: aes-256-gcm (default), chacha20-poly1305, xchacha20-poly1305.\nCompression: --compress gzip|zstd (default: none).\nMultiple recipients: --recipient alice.pem --recipient bob.pem.\nKey splitting: --split-shares 5 --split-threshold 3 (Shamir SSS).\n\nUse --stdin to read from standard input and --stdout to write the bundle to standard output.",
+		Long:  "Hash the plaintext, optionally compress, encrypt with an AEAD cipher, and write a portable .vpack bundle.\n\nSupported ciphers: aes-256-gcm (default), chacha20-poly1305, xchacha20-poly1305.\nCompression: --compress gzip|zstd (default: none).\nMultiple recipients: --recipient alice.pem --recipient bob.pem.\nKey splitting: --split-shares 5 --split-threshold 3 (Shamir SSS).\n\nAzure: use az://container/blob paths for --in and/or --out.\n\nUse --stdin to read from standard input and --stdout to write the bundle to standard output.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := NewPrinter(flagJSON, flagQuiet)
 
@@ -113,6 +113,30 @@ func newProtectCmd() *cobra.Command {
 				return fmt.Errorf("unsupported KDF %q; supported: argon2id, scrypt, pbkdf2-sha256", kdfAlgo)
 			}
 
+			// Azure: download input from blob if az:// URI.
+			var azInputCleanup func()
+			if isAzure(inFile) {
+				tmpPath, err := azureDownload(inFile)
+				if err != nil {
+					return fmt.Errorf("download from Azure: %w", err)
+				}
+				azInputCleanup = func() { os.Remove(tmpPath) }
+				// Preserve original URI for display, use temp path for local processing.
+				inFile = tmpPath
+			}
+			defer func() {
+				if azInputCleanup != nil {
+					azInputCleanup()
+				}
+			}()
+
+			// Track whether the output should be uploaded to Azure.
+			azOutURI := ""
+			if isAzure(outFile) {
+				azOutURI = outFile
+				// We'll write locally to a temp file, then upload.
+			}
+
 			// Determine input source.
 			var inputReader io.Reader
 			var inputName string
@@ -145,6 +169,23 @@ func newProtectCmd() *cobra.Command {
 				}
 				outFile = inFile + ".vpack"
 			}
+
+			// If output is Azure, use a temp file as the local write target.
+			var azOutCleanup func()
+			if azOutURI != "" {
+				tmpOut, err := os.CreateTemp("", "vaultpack-az-out-*.vpack")
+				if err != nil {
+					return fmt.Errorf("create temp output: %w", err)
+				}
+				tmpOut.Close()
+				outFile = tmpOut.Name()
+				azOutCleanup = func() { os.Remove(tmpOut.Name()) }
+			}
+			defer func() {
+				if azOutCleanup != nil {
+					azOutCleanup()
+				}
+			}()
 			// Default key output path.
 			if keyOutFile == "" && keyFile == "" {
 				if useStdin {
@@ -472,6 +513,13 @@ func newProtectCmd() *cobra.Command {
 				return fmt.Errorf("write bundle: %w", err)
 			}
 
+			// Upload to Azure if the output URI was az://.
+			if azOutURI != "" {
+				if err := azureUploadFile(outFile, azOutURI); err != nil {
+					return fmt.Errorf("upload bundle to Azure: %w", err)
+				}
+			}
+
 			// Save key file if we generated one.
 			if keyOutFile != "" && !useSplit {
 				if err := crypto.SaveKeyFile(keyOutFile, key); err != nil {
@@ -508,6 +556,9 @@ func newProtectCmd() *cobra.Command {
 			signed := signFlag
 			_ = resolvedSignAlgo // used below
 			outDesc := outFile
+			if azOutURI != "" {
+				outDesc = azOutURI
+			}
 			if useStdout {
 				outDesc = "stdout"
 			}

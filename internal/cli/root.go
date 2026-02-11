@@ -44,6 +44,10 @@ func NewRootCmd() *cobra.Command {
 	pf.BoolVar(&flagQuiet, "quiet", false, "minimal output (errors only)")
 	pf.BoolVar(&flagVerbose, "verbose", false, "enable debug logging")
 
+	// Azure Blob Storage flags.
+	pf.StringVar(&azureAccountName, "azure-account", "", "Azure storage account name (or AZURE_STORAGE_ACCOUNT env)")
+	pf.StringVar(&azureConnectionString, "azure-connection-string", "", "Azure storage connection string (or AZURE_STORAGE_CONNECTION_STRING env)")
+
 	// Register subcommands.
 	root.AddCommand(newHashCmd())
 	root.AddCommand(newProtectCmd())
