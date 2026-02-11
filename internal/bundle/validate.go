@@ -51,5 +51,10 @@ func ValidateManifest(m *Manifest) error {
 		return fmt.Errorf("%w: input name is empty", util.ErrManifestInvalid)
 	}
 
+	// Validate chunk_size if present.
+	if m.Encryption.ChunkSize != nil && *m.Encryption.ChunkSize <= 0 {
+		return fmt.Errorf("%w: chunk_size must be positive, got %d", util.ErrManifestInvalid, *m.Encryption.ChunkSize)
+	}
+
 	return nil
 }

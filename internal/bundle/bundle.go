@@ -19,7 +19,8 @@ const (
 // WriteParams holds everything needed to create a .vpack bundle.
 type WriteParams struct {
 	OutputPath    string
-	Ciphertext    []byte
+	Ciphertext    []byte    // used for non-streaming writes
+	Payload       io.Reader // used for streaming writes (takes precedence over Ciphertext)
 	ManifestBytes []byte
 	Signature     []byte // optional; nil if unsigned
 }
@@ -41,8 +42,14 @@ func Write(p *WriteParams) error {
 	if err != nil {
 		return fmt.Errorf("create payload entry: %w", err)
 	}
-	if _, err := pw.Write(p.Ciphertext); err != nil {
-		return fmt.Errorf("write payload: %w", err)
+	if p.Payload != nil {
+		if _, err := io.Copy(pw, p.Payload); err != nil {
+			return fmt.Errorf("write payload stream: %w", err)
+		}
+	} else {
+		if _, err := pw.Write(p.Ciphertext); err != nil {
+			return fmt.Errorf("write payload: %w", err)
+		}
 	}
 
 	// Write manifest.json.

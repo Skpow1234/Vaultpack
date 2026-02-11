@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 
@@ -55,16 +56,6 @@ func newDecryptCmd() *cobra.Command {
 				return nil
 			}
 
-			// Decode nonce and tag from manifest.
-			nonce, err := util.B64Decode(br.Manifest.Encryption.NonceB64)
-			if err != nil {
-				return fmt.Errorf("decode nonce: %w", err)
-			}
-			tag, err := util.B64Decode(br.Manifest.Encryption.TagB64)
-			if err != nil {
-				return fmt.Errorf("decode tag: %w", err)
-			}
-
 			// Decode AAD if present in manifest, or use CLI flag.
 			var aad []byte
 			if aadStr != "" {
@@ -76,12 +67,45 @@ func newDecryptCmd() *cobra.Command {
 				}
 			}
 
-			// Decrypt.
-			plaintext, err := crypto.DecryptAESGCM(br.Ciphertext, key, nonce, tag, aad)
-			if err != nil {
-				printer.Error(err, "decryption failed")
-				os.Exit(util.ExitDecryptFailed)
-				return nil
+			var plaintext []byte
+
+			if br.Manifest.Encryption.IsChunked() {
+				// Chunked streaming decryption.
+				baseNonce, err := util.B64Decode(br.Manifest.Encryption.NonceB64)
+				if err != nil {
+					return fmt.Errorf("decode nonce: %w", err)
+				}
+
+				var plaintextBuf bytes.Buffer
+				err = crypto.DecryptStream(
+					bytes.NewReader(br.Ciphertext),
+					&plaintextBuf,
+					key, baseNonce, aad,
+					*br.Manifest.Encryption.ChunkSize,
+				)
+				if err != nil {
+					printer.Error(err, "decryption failed")
+					os.Exit(util.ExitDecryptFailed)
+					return nil
+				}
+				plaintext = plaintextBuf.Bytes()
+			} else {
+				// Legacy non-chunked decryption.
+				nonce, err := util.B64Decode(br.Manifest.Encryption.NonceB64)
+				if err != nil {
+					return fmt.Errorf("decode nonce: %w", err)
+				}
+				tag, err := util.B64Decode(br.Manifest.Encryption.TagB64)
+				if err != nil {
+					return fmt.Errorf("decode tag: %w", err)
+				}
+
+				plaintext, err = crypto.DecryptAESGCM(br.Ciphertext, key, nonce, tag, aad)
+				if err != nil {
+					printer.Error(err, "decryption failed")
+					os.Exit(util.ExitDecryptFailed)
+					return nil
+				}
 			}
 
 			// Write plaintext.

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -47,14 +48,25 @@ func newProtectCmd() *cobra.Command {
 				keyOutFile = inFile + ".key"
 			}
 
-			// Read plaintext.
-			plaintext, err := os.ReadFile(inFile)
+			// Open input file for streaming.
+			inF, err := os.Open(inFile)
 			if err != nil {
-				return fmt.Errorf("read input: %w", err)
+				return fmt.Errorf("open input: %w", err)
 			}
+			defer inF.Close()
 
-			// Hash plaintext.
-			digest, err := crypto.HashReader(bytes.NewReader(plaintext), "sha256")
+			info, err := inF.Stat()
+			if err != nil {
+				return fmt.Errorf("stat input: %w", err)
+			}
+			inputSize := info.Size()
+
+			// Stream the plaintext through a TeeReader to hash and buffer simultaneously.
+			// The buffer holds the plaintext for encryption.
+			var plaintextBuf bytes.Buffer
+			hashReader := io.TeeReader(inF, &plaintextBuf)
+
+			digest, err := crypto.HashReader(hashReader, "sha256")
 			if err != nil {
 				return fmt.Errorf("hash plaintext: %w", err)
 			}
@@ -79,8 +91,11 @@ func newProtectCmd() *cobra.Command {
 				aad = []byte(aadStr)
 			}
 
-			// Encrypt.
-			result, err := crypto.EncryptAESGCM(plaintext, key, aad)
+			// Encrypt using chunked streaming.
+			var ciphertextBuf bytes.Buffer
+			streamResult, err := crypto.EncryptStream(
+				&plaintextBuf, &ciphertextBuf, key, aad, crypto.DefaultChunkSize,
+			)
 			if err != nil {
 				return fmt.Errorf("encrypt: %w", err)
 			}
@@ -94,29 +109,32 @@ func newProtectCmd() *cobra.Command {
 				aadB64 = &s
 			}
 
+			chunkSize := crypto.DefaultChunkSize
+
 			m := &bundle.Manifest{
 				Version:   bundle.ManifestVersion,
 				CreatedAt: time.Now().UTC().Format(time.RFC3339),
 				Input: bundle.InputMeta{
 					Name: filepath.Base(inFile),
-					Size: int64(len(plaintext)),
+					Size: inputSize,
 				},
 				Plaintext: bundle.PlaintextHash{
 					Algo:      "sha256",
 					DigestB64: util.B64Encode(digest),
 				},
 				Encryption: bundle.EncryptionMeta{
-					AEAD:     "aes-256-gcm",
-					NonceB64: util.B64Encode(result.Nonce),
-					TagB64:   util.B64Encode(result.Tag),
-					AADB64:   aadB64,
+					AEAD:      "aes-256-gcm",
+					NonceB64:  util.B64Encode(streamResult.BaseNonce),
+					TagB64:    util.B64Encode(streamResult.LastTag),
+					AADB64:    aadB64,
+					ChunkSize: &chunkSize,
 					KeyID: bundle.KeyID{
 						Algo:      keyAlgo,
 						DigestB64: keyDigest,
 					},
 				},
 				Ciphertext: bundle.CiphertextMeta{
-					Size: int64(len(result.Ciphertext)),
+					Size: streamResult.CiphertextSize,
 				},
 			}
 
@@ -138,7 +156,9 @@ func newProtectCmd() *cobra.Command {
 					return fmt.Errorf("canonicalize manifest: %w", err)
 				}
 
-				payloadHash, err := crypto.HashReader(bytes.NewReader(result.Ciphertext), "sha256")
+				payloadHash, err := crypto.HashReader(
+					bytes.NewReader(ciphertextBuf.Bytes()), "sha256",
+				)
 				if err != nil {
 					return fmt.Errorf("hash payload: %w", err)
 				}
@@ -147,10 +167,10 @@ func newProtectCmd() *cobra.Command {
 				sig = crypto.Sign(privKey, sigMsg)
 			}
 
-			// Write bundle.
+			// Write bundle with streaming payload.
 			err = bundle.Write(&bundle.WriteParams{
 				OutputPath:    outFile,
-				Ciphertext:    result.Ciphertext,
+				Payload:       &ciphertextBuf,
 				ManifestBytes: manifestBytes,
 				Signature:     sig,
 			})
@@ -173,11 +193,13 @@ func newProtectCmd() *cobra.Command {
 					"bundle":      outFile,
 					"key_file":    keyOutFile,
 					"input":       inFile,
-					"input_size":  len(plaintext),
+					"input_size":  inputSize,
 					"algo":        "aes-256-gcm",
 					"hash_algo":   "sha256",
 					"hash_digest": util.B64Encode(digest),
 					"signed":      signed,
+					"chunked":     true,
+					"chunk_size":  chunkSize,
 				})
 			default:
 				printer.Human("Protected: %s", inFile)
@@ -185,7 +207,7 @@ func newProtectCmd() *cobra.Command {
 				if keyOutFile != "" {
 					printer.Human("Key:       %s", keyOutFile)
 				}
-				printer.Human("Algo:      aes-256-gcm")
+				printer.Human("Algo:      aes-256-gcm (chunked, %d byte chunks)", chunkSize)
 				printer.Human("Hash:      sha256:%s", util.B64Encode(digest))
 				if signed {
 					printer.Human("Signed:    yes (ed25519)")

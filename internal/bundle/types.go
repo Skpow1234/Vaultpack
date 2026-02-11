@@ -5,12 +5,12 @@ const ManifestVersion = "v1"
 
 // Manifest represents the manifest.json inside a .vpack bundle.
 type Manifest struct {
-	Version    string          `json:"version"`
-	CreatedAt  string          `json:"created_at"`
-	Input      InputMeta       `json:"input"`
-	Plaintext  PlaintextHash   `json:"plaintext_hash"`
-	Encryption EncryptionMeta  `json:"encryption"`
-	Ciphertext CiphertextMeta  `json:"ciphertext"`
+	Version    string         `json:"version"`
+	CreatedAt  string         `json:"created_at"`
+	Input      InputMeta      `json:"input"`
+	Plaintext  PlaintextHash  `json:"plaintext_hash"`
+	Encryption EncryptionMeta `json:"encryption"`
+	Ciphertext CiphertextMeta `json:"ciphertext"`
 }
 
 // InputMeta describes the original plaintext file.
@@ -27,11 +27,17 @@ type PlaintextHash struct {
 
 // EncryptionMeta describes the AEAD encryption parameters.
 type EncryptionMeta struct {
-	AEAD     string  `json:"aead"`
-	NonceB64 string  `json:"nonce_b64"`
-	TagB64   string  `json:"tag_b64"`
-	AADB64   *string `json:"aad_b64"`
-	KeyID    KeyID   `json:"key_id"`
+	AEAD      string  `json:"aead"`
+	NonceB64  string  `json:"nonce_b64"`
+	TagB64    string  `json:"tag_b64"`
+	AADB64    *string `json:"aad_b64"`
+	KeyID     KeyID   `json:"key_id"`
+	ChunkSize *int    `json:"chunk_size,omitempty"` // nil for non-chunked (backward compat)
+}
+
+// IsChunked returns true if the encryption uses chunked streaming mode.
+func (e *EncryptionMeta) IsChunked() bool {
+	return e.ChunkSize != nil && *e.ChunkSize > 0
 }
 
 // KeyID is a fingerprint of the encryption key for early mismatch detection.
