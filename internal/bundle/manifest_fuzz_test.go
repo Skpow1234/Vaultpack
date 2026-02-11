@@ -44,6 +44,10 @@ func FuzzUnmarshalManifest(f *testing.F) {
 // FuzzCanonicalManifest ensures CanonicalManifest doesn't panic on arbitrary Manifest structs.
 func FuzzCanonicalManifest(f *testing.F) {
 	f.Add("v1", "2025-01-01T00:00:00Z", "test.csv", "sha256", "aes-256-gcm")
+	f.Add("v1", "2025-01-01T00:00:00Z", "data.bin", "sha512", "aes-256-gcm")
+	f.Add("v1", "2025-01-01T00:00:00Z", "data.bin", "sha3-256", "aes-256-gcm")
+	f.Add("v1", "2025-01-01T00:00:00Z", "data.bin", "blake2b-256", "aes-256-gcm")
+	f.Add("v1", "2025-01-01T00:00:00Z", "data.bin", "blake3", "aes-256-gcm")
 	f.Add("", "", "", "", "")
 	f.Add("v2", "bogus", "\x00\xff", "md5", "chacha20")
 

@@ -21,6 +21,7 @@ func newProtectCmd() *cobra.Command {
 		keyOutFile  string
 		keyFile     string
 		aadStr      string
+		hashAlgo    string
 		signFlag    bool
 		signingPriv string
 		useStdin    bool
@@ -42,6 +43,9 @@ func newProtectCmd() *cobra.Command {
 			}
 			if signFlag && signingPriv == "" {
 				return fmt.Errorf("--signing-priv is required when --sign is set")
+			}
+			if !crypto.SupportedHashAlgo(hashAlgo) {
+				return fmt.Errorf("unsupported hash algorithm %q; supported: sha256, sha512, sha3-256, sha3-512, blake2b-256, blake2b-512, blake3", hashAlgo)
 			}
 
 			// Determine input source.
@@ -94,7 +98,7 @@ func newProtectCmd() *cobra.Command {
 			var plaintextBuf bytes.Buffer
 			hashReader := io.TeeReader(inputReader, &plaintextBuf)
 
-			digest, err := crypto.HashReader(hashReader, "sha256")
+			digest, err := crypto.HashReader(hashReader, hashAlgo)
 			if err != nil {
 				return fmt.Errorf("hash plaintext: %w", err)
 			}
@@ -152,7 +156,7 @@ func newProtectCmd() *cobra.Command {
 					Size: inputSize,
 				},
 				Plaintext: bundle.PlaintextHash{
-					Algo:      "sha256",
+					Algo:      hashAlgo,
 					DigestB64: util.B64Encode(digest),
 				},
 				Encryption: bundle.EncryptionMeta{
@@ -242,7 +246,7 @@ func newProtectCmd() *cobra.Command {
 					"input":       inputName,
 					"input_size":  inputSize,
 					"algo":        "aes-256-gcm",
-					"hash_algo":   "sha256",
+					"hash_algo":   hashAlgo,
 					"hash_digest": util.B64Encode(digest),
 					"signed":      signed,
 					"chunked":     true,
@@ -255,7 +259,7 @@ func newProtectCmd() *cobra.Command {
 					printer.Human("Key:       %s", keyOutFile)
 				}
 				printer.Human("Algo:      aes-256-gcm (chunked, %d byte chunks)", chunkSize)
-				printer.Human("Hash:      sha256:%s", util.B64Encode(digest))
+				printer.Human("Hash:      %s:%s", hashAlgo, util.B64Encode(digest))
 				if signed {
 					printer.Human("Signed:    yes (ed25519)")
 				}
@@ -269,6 +273,7 @@ func newProtectCmd() *cobra.Command {
 	cmd.Flags().StringVar(&keyOutFile, "key-out", "", "path to write the generated key (default: <input>.key)")
 	cmd.Flags().StringVar(&keyFile, "key", "", "path to an existing key (skips key generation)")
 	cmd.Flags().StringVar(&aadStr, "aad", "", "additional authenticated data (e.g. 'env=prod,app=payments')")
+	cmd.Flags().StringVar(&hashAlgo, "hash-algo", "sha256", "hash algorithm for plaintext: sha256, sha512, sha3-256, sha3-512, blake2b-256, blake2b-512, blake3")
 	cmd.Flags().BoolVar(&signFlag, "sign", false, "sign the bundle with Ed25519")
 	cmd.Flags().StringVar(&signingPriv, "signing-priv", "", "path to Ed25519 private key (required with --sign)")
 	cmd.Flags().BoolVar(&useStdin, "stdin", false, "read plaintext from standard input")

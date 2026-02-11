@@ -95,7 +95,7 @@ func newHashCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&inFile, "in", "", "input file to hash")
-	cmd.Flags().StringVar(&algo, "algo", "sha256", "hash algorithm (default: sha256)")
+	cmd.Flags().StringVar(&algo, "algo", "sha256", "hash algorithm: sha256, sha512, sha3-256, sha3-512, blake2b-256, blake2b-512, blake3")
 	cmd.Flags().BoolVar(&useStdin, "stdin", false, "read from standard input")
 
 	return cmd

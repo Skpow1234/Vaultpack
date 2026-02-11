@@ -127,6 +127,56 @@ func TestDecryptCmd_WrongKey(t *testing.T) {
 	}
 }
 
+// TestDecryptCmd_RoundtripAllHashAlgos verifies protect→decrypt with each hash algorithm.
+func TestDecryptCmd_RoundtripAllHashAlgos(t *testing.T) {
+	algos := []string{"sha256", "sha512", "sha3-256", "sha3-512", "blake2b-256", "blake2b-512", "blake3"}
+	for _, algo := range algos {
+		t.Run(algo, func(t *testing.T) {
+			dir := t.TempDir()
+			inFile := filepath.Join(dir, "data.bin")
+			bundleFile := filepath.Join(dir, "data.vpack")
+			keyFile := filepath.Join(dir, "data.key")
+			outFile := filepath.Join(dir, "recovered.bin")
+
+			original := []byte("round-trip with " + algo)
+			os.WriteFile(inFile, original, 0o600)
+
+			// Protect with specific hash algo.
+			root := NewRootCmd()
+			root.SetArgs([]string{
+				"protect",
+				"--in", inFile,
+				"--out", bundleFile,
+				"--key-out", keyFile,
+				"--hash-algo", algo,
+			})
+			if err := root.Execute(); err != nil {
+				t.Fatalf("protect: %v", err)
+			}
+
+			// Decrypt.
+			root2 := NewRootCmd()
+			root2.SetArgs([]string{
+				"decrypt",
+				"--in", bundleFile,
+				"--out", outFile,
+				"--key", keyFile,
+			})
+			if err := root2.Execute(); err != nil {
+				t.Fatalf("decrypt: %v", err)
+			}
+
+			recovered, err := os.ReadFile(outFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(recovered) != string(original) {
+				t.Errorf("got %q, want %q", recovered, original)
+			}
+		})
+	}
+}
+
 func TestDecryptCmd_MissingFlags(t *testing.T) {
 	tests := []struct {
 		name string

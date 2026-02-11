@@ -3,6 +3,7 @@ package bundle
 import (
 	"fmt"
 
+	"github.com/Skpow1234/Vaultpack/internal/crypto"
 	"github.com/Skpow1234/Vaultpack/internal/util"
 )
 
@@ -39,7 +40,7 @@ func ValidateManifest(m *Manifest) error {
 		return fmt.Errorf("%w: tag length %d, want %d", util.ErrInvalidTagLength, len(tagBytes), gcmTagSize)
 	}
 
-	if m.Plaintext.Algo != "sha256" {
+	if !crypto.SupportedHashAlgo(m.Plaintext.Algo) {
 		return fmt.Errorf("%w: plaintext hash algo %q", util.ErrUnsupportedAlgorithm, m.Plaintext.Algo)
 	}
 

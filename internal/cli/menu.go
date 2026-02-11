@@ -65,6 +65,7 @@ func runProtectMenu(cmd *cobra.Command) error {
 		outFile     string
 		keyOutFile  string
 		aad         string
+		hashAlg     string
 		wantSign    bool
 		signingPriv string
 	)
@@ -83,6 +84,18 @@ func runProtectMenu(cmd *cobra.Command) error {
 				Title("Key output path (leave blank for default)").
 				Placeholder("<input>.key").
 				Value(&keyOutFile),
+			huh.NewSelect[string]().
+				Title("Hash algorithm for plaintext").
+				Options(
+					huh.NewOption("SHA-256 (default)", "sha256"),
+					huh.NewOption("SHA-512", "sha512"),
+					huh.NewOption("SHA3-256", "sha3-256"),
+					huh.NewOption("SHA3-512", "sha3-512"),
+					huh.NewOption("BLAKE2b-256", "blake2b-256"),
+					huh.NewOption("BLAKE2b-512", "blake2b-512"),
+					huh.NewOption("BLAKE3", "blake3"),
+				).
+				Value(&hashAlg),
 			huh.NewInput().
 				Title("Additional authenticated data (optional)").
 				Placeholder("env=prod,app=payments").
@@ -108,7 +121,7 @@ func runProtectMenu(cmd *cobra.Command) error {
 	}
 
 	// Build args.
-	args := []string{"protect", "--in", inFile}
+	args := []string{"protect", "--in", inFile, "--hash-algo", hashAlg}
 	if outFile != "" {
 		args = append(args, "--out", outFile)
 	}
@@ -191,19 +204,37 @@ func runInspectMenu() error {
 }
 
 func runHashMenu() error {
-	var inFile string
+	var (
+		inFile  string
+		hashAlg string
+	)
 
-	err := huh.NewInput().
-		Title("Input file to hash").
-		Placeholder("/path/to/file").
-		Value(&inFile).
-		Run()
+	err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Input file to hash").
+				Placeholder("/path/to/file").
+				Value(&inFile),
+			huh.NewSelect[string]().
+				Title("Hash algorithm").
+				Options(
+					huh.NewOption("SHA-256 (default)", "sha256"),
+					huh.NewOption("SHA-512", "sha512"),
+					huh.NewOption("SHA3-256", "sha3-256"),
+					huh.NewOption("SHA3-512", "sha3-512"),
+					huh.NewOption("BLAKE2b-256", "blake2b-256"),
+					huh.NewOption("BLAKE2b-512", "blake2b-512"),
+					huh.NewOption("BLAKE3", "blake3"),
+				).
+				Value(&hashAlg),
+		),
+	).Run()
 	if err != nil {
 		return err
 	}
 
 	root := NewRootCmd()
-	root.SetArgs([]string{"hash", "--in", inFile})
+	root.SetArgs([]string{"hash", "--in", inFile, "--algo", hashAlg})
 	return root.Execute()
 }
 
