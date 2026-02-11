@@ -48,6 +48,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newHashCmd())
 	root.AddCommand(newProtectCmd())
 	root.AddCommand(newDecryptCmd())
+	root.AddCommand(newInspectCmd())
 
 	return root
 }
