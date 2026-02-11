@@ -55,6 +55,9 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newVerifyIntegrityCmd())
 	root.AddCommand(newSplitKeyCmd())
 	root.AddCommand(newCombineKeyCmd())
+	root.AddCommand(newBatchProtectCmd())
+	root.AddCommand(newBatchDecryptCmd())
+	root.AddCommand(newBatchInspectCmd())
 	root.AddCommand(newMenuCmd())
 
 	return root

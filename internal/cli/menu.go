@@ -30,6 +30,9 @@ func newMenuCmd() *cobra.Command {
 				huh.NewOption("Verify integrity (decrypt + hash check)", "verify-integrity"),
 				huh.NewOption("Split a key into Shamir shares", "split-key"),
 				huh.NewOption("Combine Shamir shares into a key", "combine-key"),
+				huh.NewOption("Batch protect a directory", "batch-protect"),
+				huh.NewOption("Batch decrypt a directory", "batch-decrypt"),
+				huh.NewOption("Batch inspect a directory", "batch-inspect"),
 				huh.NewOption("Exit", "exit"),
 				).
 				Value(&action).
@@ -59,6 +62,12 @@ func newMenuCmd() *cobra.Command {
 			return runSplitKeyMenu()
 		case "combine-key":
 			return runCombineKeyMenu()
+		case "batch-protect":
+			return runBatchProtectMenu()
+		case "batch-decrypt":
+			return runBatchDecryptMenu()
+		case "batch-inspect":
+			return runBatchInspectMenu()
 		case "exit":
 			fmt.Println("Goodbye.")
 			return nil
@@ -625,6 +634,144 @@ func runCombineKeyMenu() error {
 
 	root := NewRootCmd()
 	root.SetArgs(args)
+	return root.Execute()
+}
+
+func runBatchProtectMenu() error {
+	var (
+		srcDir     string
+		outDir     string
+		keyMode    string
+		workersStr string
+		compress   string
+	)
+
+	err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Source directory to encrypt").
+				Placeholder("./exports/").
+				Value(&srcDir),
+			huh.NewInput().
+				Title("Output directory for .vpack bundles").
+				Placeholder("./encrypted/").
+				Value(&outDir),
+			huh.NewSelect[string]().
+				Title("Key mode").
+				Options(
+					huh.NewOption("Shared batch key (default)", "shared"),
+					huh.NewOption("Per-file key", "perfile"),
+				).
+				Value(&keyMode),
+			huh.NewSelect[string]().
+				Title("Compression").
+				Options(
+					huh.NewOption("None", "none"),
+					huh.NewOption("gzip", "gzip"),
+					huh.NewOption("zstd", "zstd"),
+				).
+				Value(&compress),
+			huh.NewInput().
+				Title("Workers (leave blank for auto)").
+				Placeholder("").
+				Value(&workersStr),
+		),
+	).Run()
+	if err != nil {
+		return err
+	}
+
+	args := []string{"batch-protect", "--dir", srcDir, "--out-dir", outDir}
+	if keyMode == "perfile" {
+		args = append(args, "--per-file-key")
+	}
+	if compress != "" && compress != "none" {
+		args = append(args, "--compress", compress)
+	}
+	if workersStr != "" {
+		args = append(args, "--workers", workersStr)
+	}
+
+	root := NewRootCmd()
+	root.SetArgs(args)
+	return root.Execute()
+}
+
+func runBatchDecryptMenu() error {
+	var (
+		srcDir  string
+		outDir  string
+		keyMode string
+		keyFile string
+		pw      string
+	)
+
+	err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Directory with .vpack bundles").
+				Placeholder("./encrypted/").
+				Value(&srcDir),
+			huh.NewInput().
+				Title("Output directory for decrypted files").
+				Placeholder("./decrypted/").
+				Value(&outDir),
+			huh.NewSelect[string]().
+				Title("Decryption method").
+				Options(
+					huh.NewOption("Shared key file", "key"),
+					huh.NewOption("Per-file keys (auto-detected)", "auto"),
+					huh.NewOption("Password", "password"),
+				).
+				Value(&keyMode),
+		),
+	).Run()
+	if err != nil {
+		return err
+	}
+
+	args := []string{"batch-decrypt", "--dir", srcDir, "--out-dir", outDir}
+	switch keyMode {
+	case "key":
+		err = huh.NewInput().
+			Title("Path to batch key file").
+			Placeholder("batch.key").
+			Value(&keyFile).
+			Run()
+		if err != nil {
+			return err
+		}
+		args = append(args, "--key", keyFile)
+	case "password":
+		err = huh.NewInput().
+			Title("Password").
+			EchoMode(huh.EchoModePassword).
+			Value(&pw).
+			Run()
+		if err != nil {
+			return err
+		}
+		args = append(args, "--password", pw)
+	}
+
+	root := NewRootCmd()
+	root.SetArgs(args)
+	return root.Execute()
+}
+
+func runBatchInspectMenu() error {
+	var srcDir string
+	err := huh.NewInput().
+		Title("Directory with .vpack bundles").
+		Placeholder("./encrypted/").
+		Value(&srcDir).
+		Run()
+	if err != nil {
+		return err
+	}
+
+	root := NewRootCmd()
+	root.SetArgs([]string{"batch-inspect", "--dir", srcDir})
 	return root.Execute()
 }
 

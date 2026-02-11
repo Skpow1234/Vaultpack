@@ -72,6 +72,15 @@ vaultpack split-key --in config.json.key --shares 5 --threshold 3
 # Reconstruct a key from any 3 shares
 vaultpack combine-key --share config.json.key.share1 --share config.json.key.share3 --share config.json.key.share5 --out recovered.key
 
+# Batch encrypt an entire directory (4 workers)
+vaultpack batch-protect --dir ./exports/ --out-dir ./encrypted/ --workers 4
+
+# Batch decrypt all .vpack bundles
+vaultpack batch-decrypt --dir ./encrypted/ --out-dir ./decrypted/ --key ./encrypted/batch.key
+
+# Batch inspect (summary of all bundles)
+vaultpack batch-inspect --dir ./encrypted/
+
 # Pipeline: encrypt from stdin, decrypt to stdout
 cat config.json | vaultpack protect --stdin --out config.vpack --key-out config.key
 vaultpack decrypt --in config.vpack --key config.key --stdout > config.json
@@ -306,6 +315,53 @@ vaultpack combine-key --share data.key.share1 --share data.key.share3 --share da
 
 The threshold K is read from the share metadata. Provide at least K shares. Duplicate shares, tampered shares, and insufficient shares are detected and rejected.
 
+### `batch-protect` -- Encrypt all files in a directory
+
+```bash
+vaultpack batch-protect --dir ./exports/ --out-dir ./encrypted/ [flags]
+```
+
+| Flag             | Default       | Description                                              |
+| ---------------- | ------------- | -------------------------------------------------------- |
+| `--dir`          | (required)    | Source directory to encrypt                              |
+| `--out-dir`      | (required)    | Output directory for `.vpack` bundles                    |
+| `--key-out`      | `<out-dir>/batch.key` | Path for the shared batch key                    |
+| `--per-file-key` |               | Generate a unique key per file instead of a shared key   |
+| `--cipher`       | `aes-256-gcm` | AEAD cipher                                              |
+| `--hash-algo`    | `sha256`      | Hash algorithm                                           |
+| `--compress`     | `none`        | Pre-encryption compression: `none`, `gzip`, `zstd`       |
+| `--workers`      | `NumCPU`      | Number of parallel workers                               |
+| `--include`      |               | Glob pattern for files to include (repeatable)           |
+| `--exclude`      |               | Glob pattern for files to exclude (repeatable)           |
+| `--dry-run`      |               | Preview which files would be processed                   |
+
+Recursively encrypts all files, preserving directory structure. Writes a `batch-manifest.json` to the output directory listing every bundle with its status and duration. Individual file failures do not abort the batch; all errors are collected and reported at the end.
+
+### `batch-decrypt` -- Decrypt all `.vpack` bundles in a directory
+
+```bash
+vaultpack batch-decrypt --dir ./encrypted/ --out-dir ./decrypted/ --key batch.key
+```
+
+| Flag              | Default    | Description                                        |
+| ----------------- | ---------- | -------------------------------------------------- |
+| `--dir`           | (required) | Source directory with `.vpack` bundles             |
+| `--out-dir`       | (required) | Output directory for decrypted files               |
+| `--key`           |            | Path to shared batch decryption key                |
+| `--password`      |            | Decrypt with a password                            |
+| `--password-file` |            | Read password from file                            |
+| `--workers`       | `NumCPU`   | Number of parallel workers                         |
+
+Auto-detects `.vpack` files recursively and strips the `.vpack` extension from output filenames. If no `--key` is provided, looks for per-file keys (`<bundle>.key`) alongside each bundle.
+
+### `batch-inspect` -- Show summary of bundles in a directory
+
+```bash
+vaultpack batch-inspect --dir ./encrypted/ [--json]
+```
+
+Displays a summary of every `.vpack` bundle in the directory, including cipher, hash algorithm, and input file info. If a `batch-manifest.json` is present, its operation summary is also shown.
+
 ### Global Flags
 
 | Flag        | Description                  |
@@ -363,6 +419,7 @@ The manifest records the base nonce, the authentication tag of the final chunk, 
 - **Compression**: optional pre-encryption gzip/zstd; data is compressed *before* encryption so the ciphertext reveals no compression-ratio side channel
 - **Timestamps**: signing records an RFC 3339 UTC timestamp in the manifest (`signed_at`)
 - **Shamir's Secret Sharing**: GF(256) polynomial splitting; K-of-N threshold with checksum-based tamper detection. Each byte is split independently; fewer than K shares reveal zero information
+- **Batch operations**: parallel processing with configurable worker count, per-file or shared keys, glob include/exclude filters, dry-run preview, and `batch-manifest.json` for auditing
 - **Manifest versioning**: v1 for basic bundles, v2 when using compression, multi-recipient, or key splitting (backward-compatible reader)
 - Passwords, keys, and private keys are never stored inside the bundle
 
