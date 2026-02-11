@@ -25,8 +25,9 @@ func newMenuCmd() *cobra.Command {
 					huh.NewOption("Hash a file", "hash"),
 					huh.NewOption("Generate signing key pair", "keygen"),
 					huh.NewOption("Sign a .vpack bundle", "sign"),
-					huh.NewOption("Verify a .vpack bundle", "verify"),
-					huh.NewOption("Exit", "exit"),
+				huh.NewOption("Verify a .vpack bundle", "verify"),
+				huh.NewOption("Verify integrity (decrypt + hash check)", "verify-integrity"),
+				huh.NewOption("Exit", "exit"),
 				).
 				Value(&action).
 				Run()
@@ -49,11 +50,13 @@ func newMenuCmd() *cobra.Command {
 				return runSignMenu()
 			case "verify":
 				return runVerifyMenu()
-			case "exit":
-				fmt.Println("Goodbye.")
-				return nil
-			}
+		case "verify-integrity":
+			return runVerifyIntegrityMenu()
+		case "exit":
+			fmt.Println("Goodbye.")
 			return nil
+		}
+		return nil
 		},
 	}
 	return cmd
@@ -61,17 +64,18 @@ func newMenuCmd() *cobra.Command {
 
 func runProtectMenu(cmd *cobra.Command) error {
 	var (
-		inFile      string
-		outFile     string
-		keyOutFile  string
-		aad         string
-		hashAlg     string
-		cipherAlg   string
-		wantSign    bool
-		signingPriv string
-		keyMode     string
-		password    string
-		kdfAlg      string
+		inFile       string
+		outFile      string
+		keyOutFile   string
+		aad          string
+		hashAlg      string
+		cipherAlg    string
+		compressAlg  string
+		wantSign     bool
+		signingPriv  string
+		keyMode      string
+		password     string
+		kdfAlg       string
 		recipientPub string
 	)
 
@@ -165,6 +169,15 @@ func runProtectMenu(cmd *cobra.Command) error {
 					huh.NewOption("BLAKE3", "blake3"),
 				).
 				Value(&hashAlg),
+			huh.NewSelect[string]().
+				Title("Pre-encryption compression").
+				Description("Compress data before encrypting (saves space for large files)").
+				Options(
+					huh.NewOption("None (default)", "none"),
+					huh.NewOption("gzip", "gzip"),
+					huh.NewOption("zstd (fast, good ratio)", "zstd"),
+				).
+				Value(&compressAlg),
 			huh.NewInput().
 				Title("Additional authenticated data (optional)").
 				Placeholder("env=prod,app=payments").
@@ -193,6 +206,9 @@ func runProtectMenu(cmd *cobra.Command) error {
 	args := []string{"protect", "--in", inFile, "--hash-algo", hashAlg, "--cipher", cipherAlg}
 	if outFile != "" {
 		args = append(args, "--out", outFile)
+	}
+	if compressAlg != "" && compressAlg != "none" {
+		args = append(args, "--compress", compressAlg)
 	}
 	switch keyMode {
 	case "keyfile":
@@ -446,6 +462,74 @@ func runVerifyMenu() error {
 
 	root := NewRootCmd()
 	root.SetArgs([]string{"verify", "--in", inFile, "--pubkey", pubKey})
+	return root.Execute()
+}
+
+func runVerifyIntegrityMenu() error {
+	var (
+		inFile  string
+		keyMode string
+		keyFile string
+		password string
+		privKeyFile string
+	)
+
+	err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Input .vpack bundle").
+				Placeholder("/path/to/bundle.vpack").
+				Value(&inFile),
+			huh.NewSelect[string]().
+				Title("Decryption method").
+				Options(
+					huh.NewOption("Key file", "keyfile"),
+					huh.NewOption("Password", "password"),
+					huh.NewOption("Private key (hybrid)", "privkey"),
+				).
+				Value(&keyMode),
+		),
+	).Run()
+	if err != nil {
+		return err
+	}
+
+	switch keyMode {
+	case "keyfile":
+		err = huh.NewInput().
+			Title("Path to decryption key").
+			Placeholder("file.key").
+			Value(&keyFile).
+			Run()
+	case "password":
+		err = huh.NewInput().
+			Title("Password").
+			EchoMode(huh.EchoModePassword).
+			Value(&password).
+			Run()
+	case "privkey":
+		err = huh.NewInput().
+			Title("Path to private key (PEM)").
+			Placeholder("recipient.key").
+			Value(&privKeyFile).
+			Run()
+	}
+	if err != nil {
+		return err
+	}
+
+	args := []string{"verify-integrity", "--in", inFile}
+	switch keyMode {
+	case "keyfile":
+		args = append(args, "--key", keyFile)
+	case "password":
+		args = append(args, "--password", password)
+	case "privkey":
+		args = append(args, "--privkey", privKeyFile)
+	}
+
+	root := NewRootCmd()
+	root.SetArgs(args)
 	return root.Execute()
 }
 

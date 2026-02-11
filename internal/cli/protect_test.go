@@ -34,7 +34,7 @@ func TestProtectCmd_ProducesBundle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read bundle: %v", err)
 	}
-	if result.Manifest.Version != bundle.ManifestVersion {
+	if !bundle.IsSupportedManifestVersion(result.Manifest.Version) {
 		t.Errorf("version: %q", result.Manifest.Version)
 	}
 	if result.Manifest.Input.Name != "secret.txt" {

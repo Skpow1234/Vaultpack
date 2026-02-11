@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -13,35 +12,28 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newDecryptCmd() *cobra.Command {
+func newVerifyIntegrityCmd() *cobra.Command {
 	var (
 		inFile       string
-		outFile      string
 		keyFile      string
-		aadStr       string
-		useStdout    bool
 		password     string
 		passwordFile string
 		privKeyFile  string
 	)
 
 	cmd := &cobra.Command{
-		Use:   "decrypt",
-		Short: "Decrypt a .vpack bundle",
-		Long:  "Read a .vpack bundle, decrypt the payload using the provided key, and write the plaintext.\n\nUse --stdout to write decrypted plaintext to standard output.",
+		Use:   "verify-integrity",
+		Short: "Decrypt and verify that plaintext hash matches the manifest",
+		Long: `Decrypt the .vpack bundle, re-hash the recovered plaintext, and compare it
+with the plaintext_hash recorded in the manifest. This confirms end-to-end integrity:
+the decrypted content is exactly what was originally protected.
+
+Requires one of --key, --password, or --privkey.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := NewPrinter(flagJSON, flagQuiet)
 
 			if inFile == "" {
 				return fmt.Errorf("--in is required")
-			}
-			if outFile == "" && !useStdout {
-				return fmt.Errorf("--out or --stdout is required")
-			}
-
-			// When writing to stdout, redirect printer to stderr.
-			if useStdout {
-				printer.Writer = os.Stderr
 			}
 
 			// Resolve password from file if provided.
@@ -56,7 +48,6 @@ func newDecryptCmd() *cobra.Command {
 			usePassword := password != ""
 			usePrivKey := privKeyFile != ""
 
-			// Mutual exclusivity.
 			modes := 0
 			if usePassword {
 				modes++
@@ -66,6 +57,9 @@ func newDecryptCmd() *cobra.Command {
 			}
 			if usePrivKey {
 				modes++
+			}
+			if modes == 0 {
+				return fmt.Errorf("one of --key, --password, or --privkey is required")
 			}
 			if modes > 1 {
 				return fmt.Errorf("--password, --key, and --privkey are mutually exclusive")
@@ -77,74 +71,43 @@ func newDecryptCmd() *cobra.Command {
 				return fmt.Errorf("read bundle: %w", err)
 			}
 
-			// Determine encryption mode from manifest.
+			// Determine encryption mode.
 			bundleUsesKDF := br.Manifest.Encryption.KDF != nil
 			bundleUsesHybrid := br.Manifest.Encryption.Hybrid != nil
 
-			// Guide user to the right flag.
-			if modes == 0 {
-				if bundleUsesHybrid {
-					return fmt.Errorf("this bundle uses hybrid encryption; provide --privkey <your-private-key.pem>")
-				}
-				if bundleUsesKDF {
-					return fmt.Errorf("this bundle is password-protected; provide --password or --password-file")
-				}
-				return fmt.Errorf("--key is required (or --password / --privkey)")
-			}
-
-			// Load, derive, or decapsulate key.
+			// Recover key.
 			var key []byte
 			if usePrivKey {
 				if !bundleUsesHybrid {
 					return fmt.Errorf("bundle was not encrypted with hybrid encryption; use --key or --password")
 				}
 				h := br.Manifest.Encryption.Hybrid
-
 				if len(h.Recipients) > 0 {
-					// Multi-recipient: try to find a matching recipient entry.
-					var decapErr error
 					for _, re := range h.Recipients {
 						var ephPub, wrappedDEK []byte
 						if re.EphemeralPubKeyB64 != "" {
-							ephPub, err = util.B64Decode(re.EphemeralPubKeyB64)
-							if err != nil {
-								continue
-							}
+							ephPub, _ = util.B64Decode(re.EphemeralPubKeyB64)
 						}
 						if re.WrappedDEKB64 != "" {
-							wrappedDEK, err = util.B64Decode(re.WrappedDEKB64)
-							if err != nil {
-								continue
-							}
+							wrappedDEK, _ = util.B64Decode(re.WrappedDEKB64)
 						}
-						key, decapErr = crypto.HybridDecapsulateWrappedDEK(re.Scheme, privKeyFile, ephPub, wrappedDEK)
-						if decapErr == nil {
+						key, err = crypto.HybridDecapsulateWrappedDEK(re.Scheme, privKeyFile, ephPub, wrappedDEK)
+						if err == nil {
 							break
 						}
 					}
 					if key == nil {
-						msg := "no matching recipient found"
-						if decapErr != nil {
-							msg = fmt.Sprintf("multi-recipient decapsulation failed: %v", decapErr)
-						}
-						printer.Error(util.ErrDecryptFailed, msg)
+						printer.Error(util.ErrDecryptFailed, "no matching recipient found")
 						os.Exit(util.ExitDecryptFailed)
 						return nil
 					}
 				} else {
-					// Single-recipient.
 					var ephPub, wrappedDEK []byte
 					if h.EphemeralPubKeyB64 != "" {
-						ephPub, err = util.B64Decode(h.EphemeralPubKeyB64)
-						if err != nil {
-							return fmt.Errorf("decode ephemeral public key: %w", err)
-						}
+						ephPub, _ = util.B64Decode(h.EphemeralPubKeyB64)
 					}
 					if h.WrappedDEKB64 != "" {
-						wrappedDEK, err = util.B64Decode(h.WrappedDEKB64)
-						if err != nil {
-							return fmt.Errorf("decode wrapped DEK: %w", err)
-						}
+						wrappedDEK, _ = util.B64Decode(h.WrappedDEKB64)
 					}
 					key, err = crypto.HybridDecapsulate(h.Scheme, privKeyFile, ephPub, wrappedDEK)
 					if err != nil {
@@ -184,7 +147,7 @@ func newDecryptCmd() *cobra.Command {
 				}
 			}
 
-			// Verify key fingerprint matches manifest.
+			// Verify key fingerprint.
 			_, keyDigest := crypto.KeyFingerprint(key)
 			if keyDigest != br.Manifest.Encryption.KeyID.DigestB64 {
 				if usePassword {
@@ -196,33 +159,28 @@ func newDecryptCmd() *cobra.Command {
 				return nil
 			}
 
-			// Decode AAD if present in manifest, or use CLI flag.
+			// Decode AAD.
 			var aad []byte
-			if aadStr != "" {
-				aad = []byte(aadStr)
-			} else if br.Manifest.Encryption.AADB64 != nil {
+			if br.Manifest.Encryption.AADB64 != nil {
 				aad, err = util.B64Decode(*br.Manifest.Encryption.AADB64)
 				if err != nil {
 					return fmt.Errorf("decode aad: %w", err)
 				}
 			}
 
+			// Decrypt.
+			cipherName := br.Manifest.Encryption.AEAD
 			var plaintext []byte
 
-			// Auto-detect cipher from manifest.
-			cipherName := br.Manifest.Encryption.AEAD
-
 			if br.Manifest.Encryption.IsChunked() {
-				// Chunked streaming decryption.
 				baseNonce, err := util.B64Decode(br.Manifest.Encryption.NonceB64)
 				if err != nil {
 					return fmt.Errorf("decode nonce: %w", err)
 				}
-
-				var plaintextBuf bytes.Buffer
+				var buf bytes.Buffer
 				err = crypto.DecryptStream(
 					bytes.NewReader(br.Ciphertext),
-					&plaintextBuf,
+					&buf,
 					key, baseNonce, aad,
 					*br.Manifest.Encryption.ChunkSize,
 					cipherName,
@@ -232,9 +190,8 @@ func newDecryptCmd() *cobra.Command {
 					os.Exit(util.ExitDecryptFailed)
 					return nil
 				}
-				plaintext = plaintextBuf.Bytes()
+				plaintext = buf.Bytes()
 			} else {
-				// Legacy non-chunked decryption.
 				nonce, err := util.B64Decode(br.Manifest.Encryption.NonceB64)
 				if err != nil {
 					return fmt.Errorf("decode nonce: %w", err)
@@ -243,7 +200,6 @@ func newDecryptCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("decode tag: %w", err)
 				}
-
 				plaintext, err = crypto.DecryptAEAD(cipherName, br.Ciphertext, key, nonce, tag, aad)
 				if err != nil {
 					printer.Error(err, "decryption failed")
@@ -252,7 +208,7 @@ func newDecryptCmd() *cobra.Command {
 				}
 			}
 
-			// Decompress if the bundle was compressed.
+			// Decompress if needed.
 			if br.Manifest.Compress != nil && br.Manifest.Compress.Algo != "" && br.Manifest.Compress.Algo != "none" {
 				plaintext, err = crypto.Decompress(plaintext, br.Manifest.Compress.Algo)
 				if err != nil {
@@ -260,51 +216,50 @@ func newDecryptCmd() *cobra.Command {
 				}
 			}
 
-			// Write plaintext.
-			var output io.Writer
-			if useStdout {
-				output = os.Stdout
-			} else {
-				f, err := os.Create(outFile)
-				if err != nil {
-					return fmt.Errorf("create output: %w", err)
-				}
-				defer f.Close()
-				output = f
-			}
-			if _, err := output.Write(plaintext); err != nil {
-				return fmt.Errorf("write output: %w", err)
+			// Re-hash the plaintext.
+			hashAlgo := br.Manifest.Plaintext.Algo
+			digest, err := crypto.HashReader(bytes.NewReader(plaintext), hashAlgo)
+			if err != nil {
+				return fmt.Errorf("re-hash plaintext: %w", err)
 			}
 
-			// Output.
-			outDesc := outFile
-			if useStdout {
-				outDesc = "stdout"
-			}
+			digestB64 := util.B64Encode(digest)
+			match := digestB64 == br.Manifest.Plaintext.DigestB64
+
 			switch printer.Mode {
 			case OutputJSON:
 				return printer.JSON(map[string]any{
-					"bundle": inFile,
-					"output": outDesc,
-					"size":   len(plaintext),
+					"bundle":          inFile,
+					"integrity_valid": match,
+					"hash_algo":       hashAlgo,
+					"expected_hash":   br.Manifest.Plaintext.DigestB64,
+					"actual_hash":     digestB64,
 				})
 			default:
-				printer.Human("Decrypted: %s", inFile)
-				printer.Human("Output:    %s", outDesc)
-				printer.Human("Size:      %d bytes", len(plaintext))
+				if match {
+					printer.Human("Integrity: PASS")
+					printer.Human("Bundle:    %s", inFile)
+					printer.Human("Hash:      %s:%s", hashAlgo, digestB64)
+				} else {
+					printer.Human("Integrity: FAIL")
+					printer.Human("Bundle:    %s", inFile)
+					printer.Human("Expected:  %s:%s", hashAlgo, br.Manifest.Plaintext.DigestB64)
+					printer.Human("Actual:    %s:%s", hashAlgo, digestB64)
+				}
+			}
+
+			if !match {
+				os.Exit(util.ExitVerifyFailed)
 			}
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&inFile, "in", "", "input .vpack bundle (required)")
-	cmd.Flags().StringVar(&outFile, "out", "", "output plaintext path")
-	cmd.Flags().StringVar(&keyFile, "key", "", "path to the decryption key")
-	cmd.Flags().StringVar(&aadStr, "aad", "", "additional authenticated data (overrides manifest AAD)")
-	cmd.Flags().BoolVar(&useStdout, "stdout", false, "write decrypted plaintext to standard output")
-	cmd.Flags().StringVar(&password, "password", "", "decrypt with a password")
+	cmd.Flags().StringVar(&keyFile, "key", "", "decryption key file")
+	cmd.Flags().StringVar(&password, "password", "", "password for password-protected bundles")
 	cmd.Flags().StringVar(&passwordFile, "password-file", "", "read password from file")
-	cmd.Flags().StringVar(&privKeyFile, "privkey", "", "private key for hybrid decryption (PEM)")
+	cmd.Flags().StringVar(&privKeyFile, "privkey", "", "private key for hybrid-encrypted bundles (PEM)")
 
 	return cmd
 }

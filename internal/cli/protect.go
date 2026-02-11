@@ -34,13 +34,14 @@ func newProtectCmd() *cobra.Command {
 		kdfAlgo      string
 		kdfTime      uint32
 		kdfMemory    uint32
-		recipient    string
+		recipients   []string
+		compressAlgo string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "protect",
 		Short: "Encrypt a file into a .vpack bundle",
-		Long:  "Hash the plaintext, encrypt with an AEAD cipher, and write a portable .vpack bundle.\n\nSupported ciphers: aes-256-gcm (default), chacha20-poly1305, xchacha20-poly1305.\nOptionally sign with Ed25519.\n\nUse --stdin to read from standard input and --stdout to write the bundle to standard output.",
+		Long:  "Hash the plaintext, optionally compress, encrypt with an AEAD cipher, and write a portable .vpack bundle.\n\nSupported ciphers: aes-256-gcm (default), chacha20-poly1305, xchacha20-poly1305.\nCompression: --compress gzip|zstd (default: none).\nMultiple recipients: --recipient alice.pem --recipient bob.pem.\n\nUse --stdin to read from standard input and --stdout to write the bundle to standard output.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := NewPrinter(flagJSON, flagQuiet)
 
@@ -60,9 +61,14 @@ func newProtectCmd() *cobra.Command {
 				return fmt.Errorf("unsupported cipher %q; supported: aes-256-gcm, chacha20-poly1305, xchacha20-poly1305", cipherName)
 			}
 
+			// Validate compression algorithm.
+			if compressAlgo != crypto.CompressNone && !crypto.SupportedCompression(compressAlgo) {
+				return fmt.Errorf("unsupported compression %q; supported: none, gzip, zstd", compressAlgo)
+			}
+
 			// Mutual exclusivity: password, key, recipient.
 			usePassword := password != "" || passwordFile != ""
-			useRecipient := recipient != ""
+			useRecipient := len(recipients) > 0
 			keyModes := 0
 			if usePassword {
 				keyModes++
@@ -156,33 +162,77 @@ func newProtectCmd() *cobra.Command {
 			var kdfMeta *bundle.KDFMeta
 			var hybridMeta *bundle.HybridMeta
 			if useRecipient {
-				// Hybrid encryption: encapsulate DEK for recipient's public key.
-				scheme, err := crypto.DetectHybridScheme(recipient)
-				if err != nil {
-					return fmt.Errorf("detect hybrid scheme: %w", err)
-				}
+				if len(recipients) == 1 {
+					// Single-recipient hybrid encryption (backward-compatible).
+					recipient := recipients[0]
+					scheme, err := crypto.DetectHybridScheme(recipient)
+					if err != nil {
+						return fmt.Errorf("detect hybrid scheme: %w", err)
+					}
 
-				result, err := crypto.HybridEncapsulate(scheme, recipient)
-				if err != nil {
-					return fmt.Errorf("hybrid encapsulate: %w", err)
-				}
+					result, err := crypto.HybridEncapsulate(scheme, recipient)
+					if err != nil {
+						return fmt.Errorf("hybrid encapsulate: %w", err)
+					}
 
-				key = result.DEK
+					key = result.DEK
 
-				recipientFP, err := crypto.RecipientKeyFingerprint(recipient)
-				if err != nil {
-					return fmt.Errorf("recipient fingerprint: %w", err)
-				}
+					recipientFP, err := crypto.RecipientKeyFingerprint(recipient)
+					if err != nil {
+						return fmt.Errorf("recipient fingerprint: %w", err)
+					}
 
-				hybridMeta = &bundle.HybridMeta{
-					Scheme:                    scheme,
-					RecipientFingerprintB64:   recipientFP,
-				}
-				if len(result.EphemeralPublicKey) > 0 {
-					hybridMeta.EphemeralPubKeyB64 = util.B64Encode(result.EphemeralPublicKey)
-				}
-				if len(result.WrappedDEK) > 0 {
-					hybridMeta.WrappedDEKB64 = util.B64Encode(result.WrappedDEK)
+					hybridMeta = &bundle.HybridMeta{
+						Scheme:                  scheme,
+						RecipientFingerprintB64: recipientFP,
+					}
+					if len(result.EphemeralPublicKey) > 0 {
+						hybridMeta.EphemeralPubKeyB64 = util.B64Encode(result.EphemeralPublicKey)
+					}
+					if len(result.WrappedDEK) > 0 {
+						hybridMeta.WrappedDEKB64 = util.B64Encode(result.WrappedDEK)
+					}
+				} else {
+					// Multi-recipient: generate one random DEK, wrap for each recipient.
+					key, err = crypto.GenerateKey(crypto.AES256KeySize)
+					if err != nil {
+						return fmt.Errorf("generate DEK: %w", err)
+					}
+
+					var recipientEntries []bundle.RecipientEntry
+					for _, rp := range recipients {
+						scheme, err := crypto.DetectHybridScheme(rp)
+						if err != nil {
+							return fmt.Errorf("detect hybrid scheme for %s: %w", rp, err)
+						}
+
+						result, err := crypto.HybridEncapsulateWithDEK(scheme, rp, key)
+						if err != nil {
+							return fmt.Errorf("wrap DEK for %s: %w", rp, err)
+						}
+
+						fp, err := crypto.RecipientKeyFingerprint(rp)
+						if err != nil {
+							return fmt.Errorf("recipient fingerprint %s: %w", rp, err)
+						}
+
+						entry := bundle.RecipientEntry{
+							Scheme:         scheme,
+							FingerprintB64: fp,
+						}
+						if len(result.EphemeralPublicKey) > 0 {
+							entry.EphemeralPubKeyB64 = util.B64Encode(result.EphemeralPublicKey)
+						}
+						if len(result.WrappedDEK) > 0 {
+							entry.WrappedDEKB64 = util.B64Encode(result.WrappedDEK)
+						}
+						recipientEntries = append(recipientEntries, entry)
+					}
+
+					hybridMeta = &bundle.HybridMeta{
+						Scheme:     "multi-recipient",
+						Recipients: recipientEntries,
+					}
 				}
 
 				// No key file output for hybrid encryption.
@@ -253,6 +303,22 @@ func newProtectCmd() *cobra.Command {
 				aad = []byte(aadStr)
 			}
 
+			// Optional pre-encryption compression.
+			var compMeta *bundle.CompressionMeta
+			if compressAlgo != crypto.CompressNone {
+				originalSize := int64(plaintextBuf.Len())
+				compressed, err := crypto.Compress(plaintextBuf.Bytes(), compressAlgo)
+				if err != nil {
+					return fmt.Errorf("compress: %w", err)
+				}
+				compMeta = &bundle.CompressionMeta{
+					Algo:         compressAlgo,
+					OriginalSize: originalSize,
+				}
+				plaintextBuf.Reset()
+				plaintextBuf.Write(compressed)
+			}
+
 			// Encrypt using chunked streaming.
 			var ciphertextBuf bytes.Buffer
 			streamResult, err := crypto.EncryptStream(
@@ -273,8 +339,14 @@ func newProtectCmd() *cobra.Command {
 
 			chunkSize := crypto.DefaultChunkSize
 
+			// Select manifest version: v2 if using new features, v1 for backward compat.
+			manifestVer := bundle.ManifestVersionV1
+			if compMeta != nil || (hybridMeta != nil && len(hybridMeta.Recipients) > 0) {
+				manifestVer = bundle.ManifestVersionV2
+			}
+
 			m := &bundle.Manifest{
-				Version:   bundle.ManifestVersion,
+				Version:   manifestVer,
 				CreatedAt: time.Now().UTC().Format(time.RFC3339),
 				Input: bundle.InputMeta{
 					Name: inputName,
@@ -300,6 +372,7 @@ func newProtectCmd() *cobra.Command {
 				Ciphertext: bundle.CiphertextMeta{
 					Size: streamResult.CiphertextSize,
 				},
+				Compress: compMeta,
 			}
 
 			manifestBytes, err := bundle.MarshalManifest(m)
@@ -321,8 +394,10 @@ func newProtectCmd() *cobra.Command {
 					return fmt.Errorf("--sign-algo %q does not match key type %q", signAlgo, detectedAlgo)
 				}
 
-				// Store signing algo in manifest.
+				// Store signing algo and timestamp in manifest.
 				m.SignatureAlgo = &resolvedSignAlgo
+				signTS := time.Now().UTC().Format(time.RFC3339)
+				m.SignedAt = &signTS
 
 				canonical, err := bundle.CanonicalManifest(m)
 				if err != nil {
@@ -397,6 +472,7 @@ func newProtectCmd() *cobra.Command {
 					"signed":      signed,
 					"chunked":     true,
 					"chunk_size":  chunkSize,
+					"version":     manifestVer,
 				}
 				if usePassword {
 					result["kdf"] = kdfAlgo
@@ -405,6 +481,11 @@ func newProtectCmd() *cobra.Command {
 				if useRecipient {
 					result["hybrid_scheme"] = hybridMeta.Scheme
 					result["recipient_encrypted"] = true
+					result["recipient_count"] = len(recipients)
+				}
+				if compMeta != nil {
+					result["compression"] = compressAlgo
+					result["original_size"] = compMeta.OriginalSize
 				}
 				return printer.JSON(result)
 			default:
@@ -414,16 +495,20 @@ func newProtectCmd() *cobra.Command {
 					printer.Human("Key:       %s", keyOutFile)
 				}
 				if useRecipient {
-					printer.Human("Hybrid:    %s", hybridMeta.Scheme)
+					printer.Human("Hybrid:    %s (%d recipient(s))", hybridMeta.Scheme, len(recipients))
 				}
 				if usePassword {
 					printer.Human("KDF:       %s", kdfAlgo)
 				}
 				printer.Human("Cipher:    %s (chunked, %d byte chunks)", cipherName, chunkSize)
+				if compMeta != nil {
+					printer.Human("Compress:  %s (%d → %d bytes)", compressAlgo, compMeta.OriginalSize, plaintextBuf.Len())
+				}
 				printer.Human("Hash:      %s:%s", hashAlgo, util.B64Encode(digest))
 				if signed {
 					printer.Human("Signed:    yes (%s)", resolvedSignAlgo)
 				}
+				printer.Human("Version:   %s", manifestVer)
 			}
 			return nil
 		},
@@ -446,7 +531,8 @@ func newProtectCmd() *cobra.Command {
 	cmd.Flags().StringVar(&kdfAlgo, "kdf", crypto.KDFArgon2id, "key derivation function: argon2id, scrypt, pbkdf2-sha256")
 	cmd.Flags().Uint32Var(&kdfTime, "kdf-time", 0, "Argon2id time parameter (default: 3)")
 	cmd.Flags().Uint32Var(&kdfMemory, "kdf-memory", 0, "Argon2id memory parameter in KiB (default: 65536 = 64MB)")
-	cmd.Flags().StringVar(&recipient, "recipient", "", "recipient's PEM public key (hybrid encryption)")
+	cmd.Flags().StringArrayVar(&recipients, "recipient", nil, "recipient's PEM public key (hybrid encryption, repeatable for multi-recipient)")
+	cmd.Flags().StringVar(&compressAlgo, "compress", crypto.CompressNone, "pre-encryption compression: none, gzip, zstd")
 
 	return cmd
 }

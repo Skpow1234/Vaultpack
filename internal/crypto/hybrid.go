@@ -76,6 +76,36 @@ func HybridEncapsulate(scheme string, recipientPubKeyPath string) (*HybridResult
 	}
 }
 
+// HybridEncapsulateWithDEK wraps an existing DEK for a recipient (used for multi-recipient).
+// For ECDH schemes the DEK is re-derived (a new ephemeral is generated), so the returned
+// HybridResult.DEK equals the original dek only for RSA-OAEP.  For ECDH schemes, the caller
+// must use RSA-OAEP wrapping for multi-recipient or accept per-recipient DEKs.
+//
+// In practice: for multi-recipient we generate one random DEK and wrap it with RSA-OAEP, or
+// for ECDH schemes we encrypt the DEK with an additional AEAD layer (DEK wrapping).
+func HybridEncapsulateWithDEK(scheme string, recipientPubKeyPath string, dek []byte) (*HybridResult, error) {
+	pubKeyBytes, err := os.ReadFile(recipientPubKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("read recipient public key: %w", err)
+	}
+
+	pubKey, err := parsePublicKeyPEM(pubKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse recipient public key: %w", err)
+	}
+
+	switch scheme {
+	case HybridX25519AES256GCM:
+		return wrapDEKX25519(pubKey, dek)
+	case HybridECIESP256:
+		return wrapDEKECIESP256(pubKey, dek)
+	case HybridRSAOAEP2048, HybridRSAOAEP4096:
+		return wrapDEKRSAOAEP(pubKey, scheme, dek)
+	default:
+		return nil, fmt.Errorf("unsupported hybrid scheme %q", scheme)
+	}
+}
+
 // HybridDecapsulate recovers the DEK using the recipient's private key.
 func HybridDecapsulate(scheme string, privKeyPath string, ephemeralPubKey, wrappedDEK []byte) ([]byte, error) {
 	privKeyBytes, err := os.ReadFile(privKeyPath)
@@ -397,6 +427,211 @@ func hkdfDerive(secret, salt, info []byte, keyLen int) ([]byte, error) {
 		return nil, fmt.Errorf("HKDF: %w", err)
 	}
 	return key, nil
+}
+
+// --- DEK wrapping for multi-recipient ---
+
+// wrapDEKX25519 wraps an existing DEK for an X25519 recipient.
+// An ephemeral X25519 ECDH is performed to derive a wrapping key, then the DEK is AES-GCM encrypted.
+func wrapDEKX25519(recipientPub any, dek []byte) (*HybridResult, error) {
+	recipientX25519, ok := recipientPub.(*ecdh.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("x25519-wrap: expected X25519 public key, got %T", recipientPub)
+	}
+
+	ephPriv, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("x25519-wrap: generate ephemeral: %w", err)
+	}
+
+	shared, err := ephPriv.ECDH(recipientX25519)
+	if err != nil {
+		return nil, fmt.Errorf("x25519-wrap: ECDH: %w", err)
+	}
+
+	wrapKey, err := hkdfDerive(shared, nil, []byte("vaultpack-x25519-wrap"), AES256KeySize)
+	if err != nil {
+		return nil, fmt.Errorf("x25519-wrap: HKDF: %w", err)
+	}
+
+	wrapped, err := aesGCMWrap(wrapKey, dek)
+	if err != nil {
+		return nil, err
+	}
+
+	return &HybridResult{
+		DEK:                dek,
+		EphemeralPublicKey: ephPriv.PublicKey().Bytes(),
+		WrappedDEK:         wrapped,
+		Scheme:             HybridX25519AES256GCM,
+	}, nil
+}
+
+// wrapDEKECIESP256 wraps an existing DEK for a P-256 ECIES recipient.
+func wrapDEKECIESP256(recipientPub any, dek []byte) (*HybridResult, error) {
+	ecPub, ok := recipientPub.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("ecies-p256-wrap: expected ECDSA public key, got %T", recipientPub)
+	}
+
+	recipientECDH, err := ecPub.ECDH()
+	if err != nil {
+		return nil, fmt.Errorf("ecies-p256-wrap: convert public key: %w", err)
+	}
+
+	ephPriv, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("ecies-p256-wrap: generate ephemeral: %w", err)
+	}
+
+	shared, err := ephPriv.ECDH(recipientECDH)
+	if err != nil {
+		return nil, fmt.Errorf("ecies-p256-wrap: ECDH: %w", err)
+	}
+
+	wrapKey, err := hkdfDerive(shared, nil, []byte("vaultpack-ecies-p256-wrap"), AES256KeySize)
+	if err != nil {
+		return nil, fmt.Errorf("ecies-p256-wrap: HKDF: %w", err)
+	}
+
+	wrapped, err := aesGCMWrap(wrapKey, dek)
+	if err != nil {
+		return nil, err
+	}
+
+	return &HybridResult{
+		DEK:                dek,
+		EphemeralPublicKey: ephPriv.PublicKey().Bytes(),
+		WrappedDEK:         wrapped,
+		Scheme:             HybridECIESP256,
+	}, nil
+}
+
+// wrapDEKRSAOAEP wraps an existing DEK for an RSA-OAEP recipient.
+func wrapDEKRSAOAEP(recipientPub any, scheme string, dek []byte) (*HybridResult, error) {
+	rsaPub, ok := recipientPub.(*rsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("rsa-oaep-wrap: expected RSA public key, got %T", recipientPub)
+	}
+
+	wrappedDEK, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaPub, dek, []byte("vaultpack-dek"))
+	if err != nil {
+		return nil, fmt.Errorf("rsa-oaep-wrap: encrypt DEK: %w", err)
+	}
+
+	return &HybridResult{
+		DEK:        dek,
+		WrappedDEK: wrappedDEK,
+		Scheme:     scheme,
+	}, nil
+}
+
+// aesGCMWrap encrypts dek with wrapKey using AES-GCM. Returns nonce || ciphertext.
+func aesGCMWrap(wrapKey, dek []byte) ([]byte, error) {
+	aead, err := NewAEAD(CipherAES256GCM, wrapKey)
+	if err != nil {
+		return nil, fmt.Errorf("aes-gcm-wrap: %w", err)
+	}
+	nonce, err := GenerateNonce(aead.NonceSize())
+	if err != nil {
+		return nil, fmt.Errorf("aes-gcm-wrap nonce: %w", err)
+	}
+	sealed := aead.Seal(nil, nonce, dek, nil)
+	// Return nonce || sealed (nonce + ciphertext + tag)
+	return append(nonce, sealed...), nil
+}
+
+// aesGCMUnwrap decrypts a wrapped DEK (nonce || ciphertext) with wrapKey using AES-GCM.
+func aesGCMUnwrap(wrapKey, wrapped []byte) ([]byte, error) {
+	aead, err := NewAEAD(CipherAES256GCM, wrapKey)
+	if err != nil {
+		return nil, fmt.Errorf("aes-gcm-unwrap: %w", err)
+	}
+	nonceSize := aead.NonceSize()
+	if len(wrapped) < nonceSize {
+		return nil, fmt.Errorf("aes-gcm-unwrap: data too short")
+	}
+	nonce := wrapped[:nonceSize]
+	ciphertext := wrapped[nonceSize:]
+	return aead.Open(nil, nonce, ciphertext, nil)
+}
+
+// HybridDecapsulateWrappedDEK recovers a DEK that was wrapped with HybridEncapsulateWithDEK.
+// This is used for multi-recipient decapsulation where ECDH schemes use AES-GCM DEK wrapping.
+func HybridDecapsulateWrappedDEK(scheme string, privKeyPath string, ephemeralPubKey, wrappedDEK []byte) ([]byte, error) {
+	privKeyBytes, err := os.ReadFile(privKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("read private key: %w", err)
+	}
+
+	privKey, err := parsePrivateKeyPEM(privKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse private key: %w", err)
+	}
+
+	switch scheme {
+	case HybridX25519AES256GCM:
+		return unwrapDEKX25519(privKey, ephemeralPubKey, wrappedDEK)
+	case HybridECIESP256:
+		return unwrapDEKECIESP256(privKey, ephemeralPubKey, wrappedDEK)
+	case HybridRSAOAEP2048, HybridRSAOAEP4096:
+		return decapsulateRSAOAEP(privKey, wrappedDEK)
+	default:
+		return nil, fmt.Errorf("unsupported hybrid scheme %q", scheme)
+	}
+}
+
+func unwrapDEKX25519(privKey any, ephemeralPubKeyBytes, wrappedDEK []byte) ([]byte, error) {
+	recipientPriv, ok := privKey.(*ecdh.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("x25519-unwrap: expected X25519 private key, got %T", privKey)
+	}
+
+	ephPub, err := ecdh.X25519().NewPublicKey(ephemeralPubKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("x25519-unwrap: parse ephemeral: %w", err)
+	}
+
+	shared, err := recipientPriv.ECDH(ephPub)
+	if err != nil {
+		return nil, fmt.Errorf("x25519-unwrap: ECDH: %w", err)
+	}
+
+	wrapKey, err := hkdfDerive(shared, nil, []byte("vaultpack-x25519-wrap"), AES256KeySize)
+	if err != nil {
+		return nil, fmt.Errorf("x25519-unwrap: HKDF: %w", err)
+	}
+
+	return aesGCMUnwrap(wrapKey, wrappedDEK)
+}
+
+func unwrapDEKECIESP256(privKey any, ephemeralPubKeyBytes, wrappedDEK []byte) ([]byte, error) {
+	ecPriv, ok := privKey.(*ecdsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("ecies-p256-unwrap: expected ECDSA private key, got %T", privKey)
+	}
+
+	recipientPrivECDH, err := ecPriv.ECDH()
+	if err != nil {
+		return nil, fmt.Errorf("ecies-p256-unwrap: convert private key: %w", err)
+	}
+
+	ephPub, err := ecdh.P256().NewPublicKey(ephemeralPubKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("ecies-p256-unwrap: parse ephemeral: %w", err)
+	}
+
+	shared, err := recipientPrivECDH.ECDH(ephPub)
+	if err != nil {
+		return nil, fmt.Errorf("ecies-p256-unwrap: ECDH: %w", err)
+	}
+
+	wrapKey, err := hkdfDerive(shared, nil, []byte("vaultpack-ecies-p256-wrap"), AES256KeySize)
+	if err != nil {
+		return nil, fmt.Errorf("ecies-p256-unwrap: HKDF: %w", err)
+	}
+
+	return aesGCMUnwrap(wrapKey, wrappedDEK)
 }
 
 // RecipientKeyFingerprint computes a SHA-256 fingerprint of a recipient's public key file.

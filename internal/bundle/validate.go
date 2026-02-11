@@ -9,8 +9,8 @@ import (
 
 // ValidateManifest checks that a parsed Manifest has valid, supported values.
 func ValidateManifest(m *Manifest) error {
-	if m.Version != ManifestVersion {
-		return fmt.Errorf("%w: got %q, want %q", util.ErrUnsupportedVersion, m.Version, ManifestVersion)
+	if !IsSupportedManifestVersion(m.Version) {
+		return fmt.Errorf("%w: got %q, want one of %v", util.ErrUnsupportedVersion, m.Version, SupportedManifestVersions)
 	}
 
 	// Validate AEAD cipher.
@@ -72,6 +72,16 @@ func ValidateManifest(m *Manifest) error {
 		}
 		if len(saltBytes) < 8 {
 			return fmt.Errorf("%w: kdf salt too short (%d bytes, want >= 8)", util.ErrManifestInvalid, len(saltBytes))
+		}
+	}
+
+	// Validate compression if present.
+	if m.Compress != nil {
+		if !crypto.SupportedCompression(m.Compress.Algo) {
+			return fmt.Errorf("%w: compression algo %q", util.ErrUnsupportedAlgorithm, m.Compress.Algo)
+		}
+		if m.Compress.OriginalSize < 0 {
+			return fmt.Errorf("%w: compression original_size must be non-negative", util.ErrManifestInvalid)
 		}
 	}
 

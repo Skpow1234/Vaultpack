@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"time"
 
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
@@ -52,8 +53,10 @@ func newSignCmd() *cobra.Command {
 				signAlgo = algo
 			}
 
-			// Store signing algo in manifest BEFORE computing canonical form.
+			// Store signing algo and timestamp in manifest BEFORE computing canonical form.
 			br.Manifest.SignatureAlgo = &signAlgo
+			ts := time.Now().UTC().Format(time.RFC3339)
+			br.Manifest.SignedAt = &ts
 
 			// Build the signing message: canonical manifest + SHA-256(payload).
 			canonical, err := bundle.CanonicalManifest(br.Manifest)
@@ -94,11 +97,13 @@ func newSignCmd() *cobra.Command {
 					"bundle":    inFile,
 					"signed":    true,
 					"algorithm": signAlgo,
+					"signed_at": ts,
 					"sig_b64":   util.B64Encode(sig),
 				})
 			default:
-				printer.Human("Signed: %s", inFile)
-				printer.Human("Algo:   %s", signAlgo)
+				printer.Human("Signed:    %s", inFile)
+				printer.Human("Algo:      %s", signAlgo)
+				printer.Human("Timestamp: %s", ts)
 			}
 			return nil
 		},

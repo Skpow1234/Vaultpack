@@ -1,17 +1,38 @@
 package bundle
 
-// ManifestVersion is the current manifest schema version.
-const ManifestVersion = "v1"
+// Manifest schema versions.
+const (
+	ManifestVersionV1 = "v1"
+	ManifestVersionV2 = "v2"
+)
+
+// ManifestVersion is the current (latest) manifest schema version.
+const ManifestVersion = ManifestVersionV2
+
+// SupportedManifestVersions lists all versions the reader can handle.
+var SupportedManifestVersions = []string{ManifestVersionV1, ManifestVersionV2}
+
+// IsSupportedManifestVersion returns true if the version string is known.
+func IsSupportedManifestVersion(v string) bool {
+	for _, sv := range SupportedManifestVersions {
+		if sv == v {
+			return true
+		}
+	}
+	return false
+}
 
 // Manifest represents the manifest.json inside a .vpack bundle.
 type Manifest struct {
-	Version       string         `json:"version"`
-	CreatedAt     string         `json:"created_at"`
-	Input         InputMeta      `json:"input"`
-	Plaintext     PlaintextHash  `json:"plaintext_hash"`
-	Encryption    EncryptionMeta `json:"encryption"`
-	Ciphertext    CiphertextMeta `json:"ciphertext"`
-	SignatureAlgo *string        `json:"signature_algo,omitempty"` // nil = unsigned or legacy ed25519
+	Version       string          `json:"version"`
+	CreatedAt     string          `json:"created_at"`
+	Input         InputMeta       `json:"input"`
+	Plaintext     PlaintextHash   `json:"plaintext_hash"`
+	Encryption    EncryptionMeta  `json:"encryption"`
+	Ciphertext    CiphertextMeta  `json:"ciphertext"`
+	SignatureAlgo *string         `json:"signature_algo,omitempty"` // nil = unsigned or legacy ed25519
+	SignedAt      *string         `json:"signed_at,omitempty"`      // RFC 3339 timestamp of signature
+	Compress      *CompressionMeta `json:"compression,omitempty"`   // nil = no compression
 }
 
 // InputMeta describes the original plaintext file.
@@ -40,10 +61,25 @@ type EncryptionMeta struct {
 
 // HybridMeta describes the hybrid/asymmetric key encapsulation parameters.
 type HybridMeta struct {
-	Scheme                string `json:"scheme"`                            // e.g. "x25519-aes-256-gcm"
-	EphemeralPubKeyB64    string `json:"ephemeral_public_key_b64,omitempty"` // for ECDH schemes
-	WrappedDEKB64         string `json:"wrapped_dek_b64,omitempty"`          // for RSA-OAEP schemes
-	RecipientFingerprintB64 string `json:"recipient_fingerprint_b64"`        // SHA-256 of recipient's public key
+	Scheme                  string           `json:"scheme"`                             // e.g. "x25519-aes-256-gcm"
+	EphemeralPubKeyB64      string           `json:"ephemeral_public_key_b64,omitempty"` // for ECDH schemes (single-recipient)
+	WrappedDEKB64           string           `json:"wrapped_dek_b64,omitempty"`          // for RSA-OAEP schemes (single-recipient)
+	RecipientFingerprintB64 string           `json:"recipient_fingerprint_b64,omitempty"` // SHA-256 of recipient pub key (single)
+	Recipients              []RecipientEntry `json:"recipients,omitempty"`               // multi-recipient wrapped DEKs
+}
+
+// RecipientEntry stores per-recipient key encapsulation data for multi-recipient bundles.
+type RecipientEntry struct {
+	Scheme             string `json:"scheme"`
+	FingerprintB64     string `json:"fingerprint_b64"`
+	EphemeralPubKeyB64 string `json:"ephemeral_public_key_b64,omitempty"`
+	WrappedDEKB64      string `json:"wrapped_dek_b64,omitempty"`
+}
+
+// CompressionMeta describes optional pre-encryption compression.
+type CompressionMeta struct {
+	Algo         string `json:"algo"`          // "gzip", "zstd"
+	OriginalSize int64  `json:"original_size"` // size before compression
 }
 
 // KDFMeta describes the key derivation function parameters for password-based encryption.

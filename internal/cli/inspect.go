@@ -83,14 +83,35 @@ func newInspectCmd() *cobra.Command {
 					printer.Human("  Eph.Key:  %s", m.Encryption.Hybrid.EphemeralPubKeyB64)
 				}
 				if m.Encryption.Hybrid.WrappedDEKB64 != "" {
-					printer.Human("  Wrapped:  %s...", m.Encryption.Hybrid.WrappedDEKB64[:32])
+					trunc := m.Encryption.Hybrid.WrappedDEKB64
+					if len(trunc) > 32 {
+						trunc = trunc[:32]
+					}
+					printer.Human("  Wrapped:  %s...", trunc)
 				}
-				printer.Human("  Recip.FP: %s", m.Encryption.Hybrid.RecipientFingerprintB64)
+				if m.Encryption.Hybrid.RecipientFingerprintB64 != "" {
+					printer.Human("  Recip.FP: %s", m.Encryption.Hybrid.RecipientFingerprintB64)
+				}
+				if len(m.Encryption.Hybrid.Recipients) > 0 {
+					printer.Human("  Recipients: %d", len(m.Encryption.Hybrid.Recipients))
+					for i, r := range m.Encryption.Hybrid.Recipients {
+						printer.Human("    [%d] Scheme: %s  FP: %s", i, r.Scheme, r.FingerprintB64)
+					}
+				}
+			}
+			if m.Compress != nil {
+				printer.Human("")
+				printer.Human("Compression:")
+				printer.Human("  Algo:     %s", m.Compress.Algo)
+				printer.Human("  Original: %d bytes", m.Compress.OriginalSize)
 			}
 			if m.SignatureAlgo != nil {
 				printer.Human("")
 				printer.Human("Signature:")
 				printer.Human("  Algo:     %s", *m.SignatureAlgo)
+				if m.SignedAt != nil {
+					printer.Human("  Signed:   %s", *m.SignedAt)
+				}
 			}
 			printer.Human("")
 			printer.Human("Ciphertext:")

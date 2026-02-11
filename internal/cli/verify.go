@@ -78,16 +78,28 @@ func newVerifyCmd() *cobra.Command {
 				return nil
 			}
 
+			signedAt := ""
+			if br.Manifest.SignedAt != nil {
+				signedAt = *br.Manifest.SignedAt
+			}
+
 			switch printer.Mode {
 			case OutputJSON:
-				return printer.JSON(map[string]any{
+				result := map[string]any{
 					"bundle":    inFile,
 					"verified":  true,
 					"algorithm": signAlgo,
-				})
+				}
+				if signedAt != "" {
+					result["signed_at"] = signedAt
+				}
+				return printer.JSON(result)
 			default:
 				printer.Human("Verified: %s", inFile)
 				printer.Human("Algo:     %s", signAlgo)
+				if signedAt != "" {
+					printer.Human("Signed:   %s", signedAt)
+				}
 				printer.Human("Signature is valid.")
 			}
 			return nil
