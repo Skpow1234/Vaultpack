@@ -1,5 +1,8 @@
 # VaultPack
 
+[![CI](https://github.com/Skpow1234/Vaultpack/actions/workflows/ci.yml/badge.svg)](https://github.com/Skpow1234/Vaultpack/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A cross-platform CLI that encrypts, hashes, and signs data artifacts into portable `.vpack` bundles.
 
 One tool. One bundle. Encryption + integrity + authenticity.
@@ -67,6 +70,31 @@ vaultpack decrypt --in config.vpack --key config.key --stdout > config.json
 
 ## Install
 
+### Pre-built binaries (recommended)
+
+Download the latest release for your platform from
+[**Releases**](https://github.com/Skpow1234/Vaultpack/releases):
+
+```bash
+# Linux (amd64)
+curl -LO https://github.com/Skpow1234/Vaultpack/releases/latest/download/vaultpack-linux-amd64
+chmod +x vaultpack-linux-amd64
+sudo mv vaultpack-linux-amd64 /usr/local/bin/vaultpack
+
+# macOS (Apple Silicon)
+curl -LO https://github.com/Skpow1234/Vaultpack/releases/latest/download/vaultpack-darwin-arm64
+chmod +x vaultpack-darwin-arm64
+sudo mv vaultpack-darwin-arm64 /usr/local/bin/vaultpack
+```
+
+Every release includes `checksums-sha256.txt` -- verify before installing.
+
+### With `go install`
+
+```bash
+go install github.com/Skpow1234/Vaultpack/cmd/vaultpack@latest
+```
+
 ### From source
 
 Requires Go 1.22+.
@@ -75,14 +103,6 @@ Requires Go 1.22+.
 git clone https://github.com/Skpow1234/Vaultpack.git
 cd Vaultpack
 go build -o bin/vaultpack ./cmd/vaultpack
-```
-
-The binary is at `bin/vaultpack`. Move it somewhere on your `$PATH`.
-
-### With `go install`
-
-```bash
-go install github.com/Skpow1234/Vaultpack/cmd/vaultpack@latest
 ```
 
 ### Docker
@@ -267,17 +287,41 @@ artifact.vpack
 
 ## Security
 
-- **Encryption**: AES-256-GCM, ChaCha20-Poly1305, or XChaCha20-Poly1305 (AEAD) with random nonces
-- **Hashing**: SHA-256 (default), SHA-512, SHA3-256, SHA3-512, BLAKE2b-256, BLAKE2b-512, BLAKE3
-- **Signing**: Ed25519, ECDSA (P-256/P-384), RSA-PSS (2048/4096) -- detached signatures with RFC 3339 timestamps
-- **Key Derivation**: Argon2id (default, t=3, m=64MB, p=4), scrypt (N=32768, r=8, p=1), PBKDF2-SHA256 (600k iterations)
-- **Hybrid Encryption**: X25519+HKDF+AES-256-GCM, ECIES-P256, RSA-OAEP-SHA256 (2048/4096)
-- **Multi-recipient**: Encrypt once for multiple recipients; each gets an independently wrapped DEK
-- **Compression**: Optional pre-encryption gzip or zstd compression to reduce bundle size
-- **Integrity**: `verify-integrity` command decrypts and re-hashes to confirm end-to-end plaintext integrity
-- **Manifest versioning**: v1 for basic bundles, v2 for compression and multi-recipient features (backward-compatible)
-- **Key fingerprint**: SHA-256 of the derived/raw key, stored in the manifest for early mismatch detection
-- Ephemeral keys ensure forward secrecy for ECDH-based hybrid schemes
+### Algorithms
+
+- **AEAD encryption**: AES-256-GCM, ChaCha20-Poly1305, XChaCha20-Poly1305
+- **Hashing**: SHA-256, SHA-512, SHA3-256, SHA3-512, BLAKE2b-256, BLAKE2b-512, BLAKE3
+- **Signing**: Ed25519, ECDSA (P-256/P-384), RSA-PSS (2048/4096)
+- **KDFs**: Argon2id (t=3, m=64 MB, p=4), scrypt (N=32768, r=8, p=1), PBKDF2-SHA256 (600k iter)
+- **Hybrid encryption**: X25519+HKDF+AES-256-GCM, ECIES-P256, RSA-OAEP-SHA256
+
+### Chunked Streaming Encryption
+
+All encryption uses chunked streaming (default 64 KB plaintext chunks). This is necessary for constant-memory processing of large files, but it means each chunk is a separate AEAD operation. VaultPack prevents the three standard attacks on chunked AEAD:
+
+**Nonce derivation (prevents nonce reuse).**
+A single random base nonce is generated per bundle. Each chunk's nonce is derived as `base_nonce XOR chunk_index`, where the chunk index is a big-endian 64-bit counter XORed into the last 8 bytes of the base nonce. Because the counter is monotonically increasing and the base nonce is random, no two chunks within a bundle (or across bundles) share a nonce with practical probability.
+
+**Last-chunk flag (prevents truncation).**
+The final chunk's counter has bit 63 set (`counter | 0x8000000000000000`). This means a truncated file (missing the last N chunks) will fail AEAD authentication on what the decryptor thinks is the final chunk, because the nonce won't match. An attacker cannot truncate the ciphertext without detection.
+
+**Chunk ordering (prevents reordering).**
+Because each chunk's nonce encodes its sequential index, swapping two chunks causes both to fail AEAD authentication -- the ciphertext was sealed under a different nonce than the one the decryptor derives for that position. Chunks cannot be reordered, duplicated, or removed.
+
+**What is authenticated per chunk.**
+Each AEAD `Seal`/`Open` call authenticates: (1) the chunk plaintext (confidentiality + integrity), (2) the nonce (implicitly, via the AEAD construction), and (3) optional AAD passed by the user via `--aad`. The AAD is the same for every chunk and is also stored in the manifest.
+
+**What is authenticated across the bundle.**
+The manifest records the base nonce, the authentication tag of the final chunk, the total ciphertext size, the cipher name, and the chunk size. When signing is used, the signature covers the canonical manifest and the SHA-256 of the full `payload.bin`, binding the manifest to the exact ciphertext byte-for-byte.
+
+### Other Properties
+
+- **Key fingerprint**: SHA-256 of the raw key is stored in the manifest for early wrong-key detection before attempting decryption
+- **Multi-recipient**: one random DEK is generated and wrapped independently for each recipient
+- **Forward secrecy**: ECDH-based hybrid schemes use ephemeral keys; compromising the recipient's long-term key does not reveal past DEKs
+- **Compression**: optional pre-encryption gzip/zstd; data is compressed *before* encryption so the ciphertext reveals no compression-ratio side channel
+- **Timestamps**: signing records an RFC 3339 UTC timestamp in the manifest (`signed_at`)
+- **Manifest versioning**: v1 for basic bundles, v2 when using compression or multi-recipient (backward-compatible reader)
 - Passwords, keys, and private keys are never stored inside the bundle
 
 ## Development
@@ -320,3 +364,7 @@ testdata/            # Test fixtures and golden files
 | `10` | Verification failed                              |
 | `11` | Decryption failed (wrong key / corrupted bundle) |
 | `12` | Unsupported version or algorithm                 |
+
+## License
+
+[MIT](LICENSE)

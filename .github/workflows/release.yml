@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Run tests
+        run: go test -count=1 -timeout 120s ./...
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+          for target in "linux/amd64" "linux/arm64" "darwin/amd64" "darwin/arm64" "windows/amd64"; do
+            GOOS="${target%%/*}"
+            GOARCH="${target##*/}"
+            EXT=""
+            if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
+            OUTPUT="dist/vaultpack-${GOOS}-${GOARCH}${EXT}"
+            echo "Building ${OUTPUT}..."
+            CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
+              go build -ldflags "-s -w -X github.com/Skpow1234/Vaultpack/internal/cli.Version=${{ steps.version.outputs.VERSION }}" \
+              -o "$OUTPUT" ./cmd/vaultpack
+          done
+
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum vaultpack-* > checksums-sha256.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/vaultpack-*
+            dist/checksums-sha256.txt
