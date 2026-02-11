@@ -2,6 +2,8 @@ module github.com/Skpow1234/Vaultpack
 
 go 1.24.2
 
+toolchain go1.24.13
+
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.20.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1 // indirect
