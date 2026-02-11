@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
@@ -14,11 +15,13 @@ import (
 
 func newDecryptCmd() *cobra.Command {
 	var (
-		inFile    string
-		outFile   string
-		keyFile   string
-		aadStr    string
-		useStdout bool
+		inFile       string
+		outFile      string
+		keyFile      string
+		aadStr       string
+		useStdout    bool
+		password     string
+		passwordFile string
 	)
 
 	cmd := &cobra.Command{
@@ -31,9 +34,6 @@ func newDecryptCmd() *cobra.Command {
 			if inFile == "" {
 				return fmt.Errorf("--in is required")
 			}
-			if keyFile == "" {
-				return fmt.Errorf("--key is required")
-			}
 			if outFile == "" && !useStdout {
 				return fmt.Errorf("--out or --stdout is required")
 			}
@@ -43,22 +43,77 @@ func newDecryptCmd() *cobra.Command {
 				printer.Writer = os.Stderr
 			}
 
+			// Resolve password from file if provided.
+			if passwordFile != "" {
+				pwData, err := os.ReadFile(passwordFile)
+				if err != nil {
+					return fmt.Errorf("read password file: %w", err)
+				}
+				password = strings.TrimRight(string(pwData), "\r\n")
+			}
+
+			usePassword := password != ""
+			if usePassword && keyFile != "" {
+				return fmt.Errorf("--password/--password-file and --key are mutually exclusive")
+			}
+
 			// Read bundle.
 			br, err := bundle.Read(inFile)
 			if err != nil {
 				return fmt.Errorf("read bundle: %w", err)
 			}
 
-			// Load key.
-			key, err := crypto.LoadKeyFile(keyFile)
-			if err != nil {
-				return fmt.Errorf("load key: %w", err)
+			// Determine if bundle was password-protected.
+			bundleUsesKDF := br.Manifest.Encryption.KDF != nil
+
+			if bundleUsesKDF && !usePassword && keyFile == "" {
+				return fmt.Errorf("this bundle is password-protected; provide --password or --password-file")
+			}
+			if !bundleUsesKDF && !usePassword && keyFile == "" {
+				return fmt.Errorf("--key is required (or --password for password-protected bundles)")
+			}
+
+			// Load or derive key.
+			var key []byte
+			if usePassword {
+				if !bundleUsesKDF {
+					return fmt.Errorf("bundle was not encrypted with a password; use --key instead")
+				}
+				kdfM := br.Manifest.Encryption.KDF
+				salt, err := util.B64Decode(kdfM.SaltB64)
+				if err != nil {
+					return fmt.Errorf("decode KDF salt: %w", err)
+				}
+				kdfParams := crypto.KDFParams{
+					Algo:       kdfM.Algo,
+					SaltB64:    kdfM.SaltB64,
+					Time:       kdfM.Time,
+					Memory:     kdfM.Memory,
+					Threads:    kdfM.Threads,
+					N:          kdfM.N,
+					R:          kdfM.R,
+					P:          kdfM.P,
+					Iterations: kdfM.Iterations,
+				}
+				key, err = crypto.DeriveKey([]byte(password), salt, kdfParams, crypto.AES256KeySize)
+				if err != nil {
+					return fmt.Errorf("derive key: %w", err)
+				}
+			} else {
+				key, err = crypto.LoadKeyFile(keyFile)
+				if err != nil {
+					return fmt.Errorf("load key: %w", err)
+				}
 			}
 
 			// Verify key fingerprint matches manifest.
 			_, keyDigest := crypto.KeyFingerprint(key)
 			if keyDigest != br.Manifest.Encryption.KeyID.DigestB64 {
-				printer.Error(util.ErrKeyMismatch, "key fingerprint does not match manifest")
+				if usePassword {
+					printer.Error(util.ErrDecryptFailed, "wrong password (key fingerprint mismatch)")
+				} else {
+					printer.Error(util.ErrKeyMismatch, "key fingerprint does not match manifest")
+				}
 				os.Exit(util.ExitDecryptFailed)
 				return nil
 			}
@@ -158,9 +213,11 @@ func newDecryptCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&inFile, "in", "", "input .vpack bundle (required)")
 	cmd.Flags().StringVar(&outFile, "out", "", "output plaintext path")
-	cmd.Flags().StringVar(&keyFile, "key", "", "path to the decryption key (required)")
+	cmd.Flags().StringVar(&keyFile, "key", "", "path to the decryption key")
 	cmd.Flags().StringVar(&aadStr, "aad", "", "additional authenticated data (overrides manifest AAD)")
 	cmd.Flags().BoolVar(&useStdout, "stdout", false, "write decrypted plaintext to standard output")
+	cmd.Flags().StringVar(&password, "password", "", "decrypt with a password")
+	cmd.Flags().StringVar(&passwordFile, "password-file", "", "read password from file")
 
 	return cmd
 }

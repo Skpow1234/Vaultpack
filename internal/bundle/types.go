@@ -28,12 +28,32 @@ type PlaintextHash struct {
 
 // EncryptionMeta describes the AEAD encryption parameters.
 type EncryptionMeta struct {
-	AEAD      string  `json:"aead"`
-	NonceB64  string  `json:"nonce_b64"`
-	TagB64    string  `json:"tag_b64"`
-	AADB64    *string `json:"aad_b64"`
-	KeyID     KeyID   `json:"key_id"`
-	ChunkSize *int    `json:"chunk_size,omitempty"` // nil for non-chunked (backward compat)
+	AEAD      string    `json:"aead"`
+	NonceB64  string    `json:"nonce_b64"`
+	TagB64    string    `json:"tag_b64"`
+	AADB64    *string   `json:"aad_b64"`
+	KeyID     KeyID     `json:"key_id"`
+	ChunkSize *int      `json:"chunk_size,omitempty"` // nil for non-chunked (backward compat)
+	KDF       *KDFMeta  `json:"kdf,omitempty"`        // nil for key-file encryption
+}
+
+// KDFMeta describes the key derivation function parameters for password-based encryption.
+type KDFMeta struct {
+	Algo    string `json:"algo"`
+	SaltB64 string `json:"salt_b64"`
+
+	// Argon2id parameters.
+	Time    uint32 `json:"time,omitempty"`
+	Memory  uint32 `json:"memory,omitempty"`  // KiB
+	Threads uint8  `json:"threads,omitempty"`
+
+	// scrypt parameters.
+	N int `json:"n,omitempty"`
+	R int `json:"r,omitempty"`
+	P int `json:"p,omitempty"`
+
+	// PBKDF2 parameters.
+	Iterations int `json:"iterations,omitempty"`
 }
 
 // IsChunked returns true if the encryption uses chunked streaming mode.

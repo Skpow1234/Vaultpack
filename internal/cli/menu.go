@@ -69,6 +69,9 @@ func runProtectMenu(cmd *cobra.Command) error {
 		cipherAlg   string
 		wantSign    bool
 		signingPriv string
+		keyMode     string
+		password    string
+		kdfAlg      string
 	)
 
 	err := huh.NewForm(
@@ -81,10 +84,54 @@ func runProtectMenu(cmd *cobra.Command) error {
 				Title("Output bundle path (leave blank for default)").
 				Placeholder("<input>.vpack").
 				Value(&outFile),
-			huh.NewInput().
-				Title("Key output path (leave blank for default)").
-				Placeholder("<input>.key").
-				Value(&keyOutFile),
+			huh.NewSelect[string]().
+				Title("Key mode").
+				Description("Choose how to encrypt: generate a key file or use a password").
+				Options(
+					huh.NewOption("Generate key file (default)", "keyfile"),
+					huh.NewOption("Password-based encryption", "password"),
+				).
+				Value(&keyMode),
+		),
+	).Run()
+	if err != nil {
+		return err
+	}
+
+	if keyMode == "keyfile" {
+		err = huh.NewInput().
+			Title("Key output path (leave blank for default)").
+			Placeholder("<input>.key").
+			Value(&keyOutFile).
+			Run()
+		if err != nil {
+			return err
+		}
+	} else {
+		err = huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Password").
+					Placeholder("Enter a strong passphrase").
+					EchoMode(huh.EchoModePassword).
+					Value(&password),
+				huh.NewSelect[string]().
+					Title("Key derivation function").
+					Options(
+						huh.NewOption("Argon2id (recommended)", "argon2id"),
+						huh.NewOption("scrypt", "scrypt"),
+						huh.NewOption("PBKDF2-SHA256 (FIPS)", "pbkdf2-sha256"),
+					).
+					Value(&kdfAlg),
+			),
+		).Run()
+		if err != nil {
+			return err
+		}
+	}
+
+	err = huh.NewForm(
+		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Encryption cipher").
 				Options(
@@ -110,7 +157,7 @@ func runProtectMenu(cmd *cobra.Command) error {
 				Placeholder("env=prod,app=payments").
 				Value(&aad),
 			huh.NewConfirm().
-				Title("Sign the bundle with Ed25519?").
+				Title("Sign the bundle?").
 				Value(&wantSign),
 		),
 	).Run()
@@ -120,7 +167,7 @@ func runProtectMenu(cmd *cobra.Command) error {
 
 	if wantSign {
 		err = huh.NewInput().
-			Title("Path to Ed25519 private key").
+			Title("Path to private signing key").
 			Placeholder("signing.key").
 			Value(&signingPriv).
 			Run()
@@ -134,8 +181,11 @@ func runProtectMenu(cmd *cobra.Command) error {
 	if outFile != "" {
 		args = append(args, "--out", outFile)
 	}
-	if keyOutFile != "" {
+	if keyMode == "keyfile" && keyOutFile != "" {
 		args = append(args, "--key-out", keyOutFile)
+	}
+	if keyMode == "password" {
+		args = append(args, "--password", password, "--kdf", kdfAlg)
 	}
 	if aad != "" {
 		args = append(args, "--aad", aad)
@@ -151,9 +201,11 @@ func runProtectMenu(cmd *cobra.Command) error {
 
 func runDecryptMenu(cmd *cobra.Command) error {
 	var (
-		inFile  string
-		outFile string
-		keyFile string
+		inFile   string
+		outFile  string
+		keyMode  string
+		keyFile  string
+		password string
 	)
 
 	err := huh.NewForm(
@@ -166,18 +218,48 @@ func runDecryptMenu(cmd *cobra.Command) error {
 				Title("Output plaintext path").
 				Placeholder("/path/to/output").
 				Value(&outFile),
-			huh.NewInput().
-				Title("Path to decryption key").
-				Placeholder("file.key").
-				Value(&keyFile),
+			huh.NewSelect[string]().
+				Title("Decryption method").
+				Options(
+					huh.NewOption("Key file", "keyfile"),
+					huh.NewOption("Password", "password"),
+				).
+				Value(&keyMode),
 		),
 	).Run()
 	if err != nil {
 		return err
 	}
 
+	if keyMode == "keyfile" {
+		err = huh.NewInput().
+			Title("Path to decryption key").
+			Placeholder("file.key").
+			Value(&keyFile).
+			Run()
+		if err != nil {
+			return err
+		}
+	} else {
+		err = huh.NewInput().
+			Title("Password").
+			EchoMode(huh.EchoModePassword).
+			Value(&password).
+			Run()
+		if err != nil {
+			return err
+		}
+	}
+
+	args := []string{"decrypt", "--in", inFile, "--out", outFile}
+	if keyMode == "keyfile" {
+		args = append(args, "--key", keyFile)
+	} else {
+		args = append(args, "--password", password)
+	}
+
 	root := NewRootCmd()
-	root.SetArgs([]string{"decrypt", "--in", inFile, "--out", outFile, "--key", keyFile})
+	root.SetArgs(args)
 	return root.Execute()
 }
 

@@ -57,5 +57,23 @@ func ValidateManifest(m *Manifest) error {
 		return fmt.Errorf("%w: chunk_size must be positive, got %d", util.ErrManifestInvalid, *m.Encryption.ChunkSize)
 	}
 
+	// Validate KDF parameters if present.
+	if m.Encryption.KDF != nil {
+		kdf := m.Encryption.KDF
+		if !crypto.SupportedKDF(kdf.Algo) {
+			return fmt.Errorf("%w: kdf algo %q", util.ErrUnsupportedAlgorithm, kdf.Algo)
+		}
+		if kdf.SaltB64 == "" {
+			return fmt.Errorf("%w: kdf salt is empty", util.ErrManifestInvalid)
+		}
+		saltBytes, err := util.B64Decode(kdf.SaltB64)
+		if err != nil {
+			return fmt.Errorf("%w: invalid kdf salt base64: %v", util.ErrManifestInvalid, err)
+		}
+		if len(saltBytes) < 8 {
+			return fmt.Errorf("%w: kdf salt too short (%d bytes, want >= 8)", util.ErrManifestInvalid, len(saltBytes))
+		}
+	}
+
 	return nil
 }

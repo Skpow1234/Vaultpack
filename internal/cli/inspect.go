@@ -57,6 +57,29 @@ func newInspectCmd() *cobra.Command {
 			if m.Encryption.IsChunked() {
 				printer.Human("  Chunked:  yes (%d byte chunks)", *m.Encryption.ChunkSize)
 			}
+			if m.Encryption.KDF != nil {
+				printer.Human("")
+				printer.Human("Key Derivation:")
+				printer.Human("  KDF:      %s", m.Encryption.KDF.Algo)
+				printer.Human("  Salt:     %s", m.Encryption.KDF.SaltB64)
+				switch m.Encryption.KDF.Algo {
+				case "argon2id":
+					printer.Human("  Time:     %d", m.Encryption.KDF.Time)
+					printer.Human("  Memory:   %d KiB", m.Encryption.KDF.Memory)
+					printer.Human("  Threads:  %d", m.Encryption.KDF.Threads)
+				case "scrypt":
+					printer.Human("  N:        %d", m.Encryption.KDF.N)
+					printer.Human("  r:        %d", m.Encryption.KDF.R)
+					printer.Human("  p:        %d", m.Encryption.KDF.P)
+				case "pbkdf2-sha256":
+					printer.Human("  Iter:     %d", m.Encryption.KDF.Iterations)
+				}
+			}
+			if m.SignatureAlgo != nil {
+				printer.Human("")
+				printer.Human("Signature:")
+				printer.Human("  Algo:     %s", *m.SignatureAlgo)
+			}
 			printer.Human("")
 			printer.Human("Ciphertext:")
 			printer.Human("  Size:     %d bytes", m.Ciphertext.Size)

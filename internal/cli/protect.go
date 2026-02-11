@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
@@ -16,18 +17,23 @@ import (
 
 func newProtectCmd() *cobra.Command {
 	var (
-		inFile      string
-		outFile     string
-		keyOutFile  string
-		keyFile     string
-		aadStr      string
-		hashAlgo    string
-		cipherName  string
-		signFlag    bool
-		signingPriv string
-		signAlgo    string
-		useStdin    bool
-		useStdout   bool
+		inFile       string
+		outFile      string
+		keyOutFile   string
+		keyFile      string
+		aadStr       string
+		hashAlgo     string
+		cipherName   string
+		signFlag     bool
+		signingPriv  string
+		signAlgo     string
+		useStdin     bool
+		useStdout    bool
+		password     string
+		passwordFile string
+		kdfAlgo      string
+		kdfTime      uint32
+		kdfMemory    uint32
 	)
 
 	cmd := &cobra.Command{
@@ -51,6 +57,26 @@ func newProtectCmd() *cobra.Command {
 			}
 			if !crypto.SupportedCipher(cipherName) {
 				return fmt.Errorf("unsupported cipher %q; supported: aes-256-gcm, chacha20-poly1305, xchacha20-poly1305", cipherName)
+			}
+
+			// Password and key are mutually exclusive.
+			usePassword := password != "" || passwordFile != ""
+			if usePassword && keyFile != "" {
+				return fmt.Errorf("--password/--password-file and --key are mutually exclusive")
+			}
+
+			// Resolve password from file if provided.
+			if passwordFile != "" {
+				pwData, err := os.ReadFile(passwordFile)
+				if err != nil {
+					return fmt.Errorf("read password file: %w", err)
+				}
+				password = strings.TrimRight(string(pwData), "\r\n")
+			}
+
+			// Validate KDF algorithm.
+			if usePassword && !crypto.SupportedKDF(kdfAlgo) {
+				return fmt.Errorf("unsupported KDF %q; supported: argon2id, scrypt, pbkdf2-sha256", kdfAlgo)
 			}
 
 			// Determine input source.
@@ -113,9 +139,58 @@ func newProtectCmd() *cobra.Command {
 				inputSize = int64(plaintextBuf.Len())
 			}
 
-			// Load or generate key.
+			// Derive or load key.
 			var key []byte
-			if keyFile != "" {
+			var kdfMeta *bundle.KDFMeta
+			if usePassword {
+				// Password-based key derivation.
+				kdfParams, err := crypto.DefaultKDFParams(kdfAlgo)
+				if err != nil {
+					return fmt.Errorf("kdf params: %w", err)
+				}
+
+				// Apply user overrides for Argon2id tuning.
+				if kdfAlgo == crypto.KDFArgon2id {
+					if cmd.Flags().Changed("kdf-time") {
+						kdfParams.Time = kdfTime
+					}
+					if cmd.Flags().Changed("kdf-memory") {
+						kdfParams.Memory = kdfMemory
+					}
+				}
+
+				// Warn if Argon2id memory is below 32 MB.
+				if kdfAlgo == crypto.KDFArgon2id && kdfParams.Memory < 32768 {
+					printer.Human("WARNING: Argon2id memory %d KiB is below recommended 32768 KiB (32 MB)", kdfParams.Memory)
+				}
+
+				salt, err := crypto.GenerateKDFSalt()
+				if err != nil {
+					return fmt.Errorf("generate salt: %w", err)
+				}
+
+				kdfParams.SaltB64 = util.B64Encode(salt)
+
+				key, err = crypto.DeriveKey([]byte(password), salt, kdfParams, crypto.AES256KeySize)
+				if err != nil {
+					return fmt.Errorf("derive key: %w", err)
+				}
+
+				kdfMeta = &bundle.KDFMeta{
+					Algo:       kdfParams.Algo,
+					SaltB64:    kdfParams.SaltB64,
+					Time:       kdfParams.Time,
+					Memory:     kdfParams.Memory,
+					Threads:    kdfParams.Threads,
+					N:          kdfParams.N,
+					R:          kdfParams.R,
+					P:          kdfParams.P,
+					Iterations: kdfParams.Iterations,
+				}
+
+				// No key file output for password-based encryption.
+				keyOutFile = ""
+			} else if keyFile != "" {
 				key, err = crypto.LoadKeyFile(keyFile)
 				if err != nil {
 					return fmt.Errorf("load key: %w", err)
@@ -170,6 +245,7 @@ func newProtectCmd() *cobra.Command {
 					TagB64:    util.B64Encode(streamResult.LastTag),
 					AADB64:    aadB64,
 					ChunkSize: &chunkSize,
+					KDF:       kdfMeta,
 					KeyID: bundle.KeyID{
 						Algo:      keyAlgo,
 						DigestB64: keyDigest,
@@ -264,7 +340,7 @@ func newProtectCmd() *cobra.Command {
 			}
 			switch printer.Mode {
 			case OutputJSON:
-				return printer.JSON(map[string]any{
+				result := map[string]any{
 					"bundle":      outDesc,
 					"key_file":    keyOutFile,
 					"input":       inputName,
@@ -275,12 +351,20 @@ func newProtectCmd() *cobra.Command {
 					"signed":      signed,
 					"chunked":     true,
 					"chunk_size":  chunkSize,
-				})
+				}
+				if usePassword {
+					result["kdf"] = kdfAlgo
+					result["password_protected"] = true
+				}
+				return printer.JSON(result)
 			default:
 				printer.Human("Protected: %s", inputName)
 				printer.Human("Bundle:    %s", outDesc)
 				if keyOutFile != "" {
 					printer.Human("Key:       %s", keyOutFile)
+				}
+				if usePassword {
+					printer.Human("KDF:       %s", kdfAlgo)
 				}
 				printer.Human("Cipher:    %s (chunked, %d byte chunks)", cipherName, chunkSize)
 				printer.Human("Hash:      %s:%s", hashAlgo, util.B64Encode(digest))
@@ -304,6 +388,11 @@ func newProtectCmd() *cobra.Command {
 	cmd.Flags().StringVar(&signAlgo, "sign-algo", "", "signing algorithm (auto-detected from key if omitted)")
 	cmd.Flags().BoolVar(&useStdin, "stdin", false, "read plaintext from standard input")
 	cmd.Flags().BoolVar(&useStdout, "stdout", false, "write bundle to standard output")
+	cmd.Flags().StringVar(&password, "password", "", "encrypt with a password (instead of a key file)")
+	cmd.Flags().StringVar(&passwordFile, "password-file", "", "read password from file")
+	cmd.Flags().StringVar(&kdfAlgo, "kdf", crypto.KDFArgon2id, "key derivation function: argon2id, scrypt, pbkdf2-sha256")
+	cmd.Flags().Uint32Var(&kdfTime, "kdf-time", 0, "Argon2id time parameter (default: 3)")
+	cmd.Flags().Uint32Var(&kdfMemory, "kdf-memory", 0, "Argon2id memory parameter in KiB (default: 65536 = 64MB)")
 
 	return cmd
 }
