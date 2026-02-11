@@ -23,52 +23,85 @@ func newProtectCmd() *cobra.Command {
 		aadStr      string
 		signFlag    bool
 		signingPriv string
+		useStdin    bool
+		useStdout   bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "protect",
 		Short: "Encrypt a file into a .vpack bundle",
-		Long:  "Hash the plaintext, encrypt with AES-256-GCM, and write a portable .vpack bundle. Optionally sign with Ed25519.",
+		Long:  "Hash the plaintext, encrypt with AES-256-GCM, and write a portable .vpack bundle. Optionally sign with Ed25519.\n\nUse --stdin to read from standard input and --stdout to write the bundle to standard output.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := NewPrinter(flagJSON, flagQuiet)
 
-			if inFile == "" {
-				return fmt.Errorf("--in is required")
+			if inFile == "" && !useStdin {
+				return fmt.Errorf("--in or --stdin is required")
+			}
+			if inFile != "" && useStdin {
+				return fmt.Errorf("--in and --stdin are mutually exclusive")
 			}
 			if signFlag && signingPriv == "" {
 				return fmt.Errorf("--signing-priv is required when --sign is set")
 			}
 
-			// Default output path: input + .vpack extension.
-			if outFile == "" {
+			// Determine input source.
+			var inputReader io.Reader
+			var inputName string
+			var inputSize int64
+
+			if useStdin {
+				inputReader = os.Stdin
+				inputName = "stdin"
+				inputSize = -1 // unknown
+			} else {
+				inF, err := os.Open(inFile)
+				if err != nil {
+					return fmt.Errorf("open input: %w", err)
+				}
+				defer inF.Close()
+
+				info, err := inF.Stat()
+				if err != nil {
+					return fmt.Errorf("stat input: %w", err)
+				}
+				inputReader = inF
+				inputName = filepath.Base(inFile)
+				inputSize = info.Size()
+			}
+
+			// Default output path.
+			if outFile == "" && !useStdout {
+				if useStdin {
+					return fmt.Errorf("--out is required when using --stdin")
+				}
 				outFile = inFile + ".vpack"
 			}
-			// Default key output path: input + .key extension.
+			// Default key output path.
 			if keyOutFile == "" && keyFile == "" {
-				keyOutFile = inFile + ".key"
+				if useStdin {
+					keyOutFile = "stdin.key"
+				} else {
+					keyOutFile = inFile + ".key"
+				}
 			}
 
-			// Open input file for streaming.
-			inF, err := os.Open(inFile)
-			if err != nil {
-				return fmt.Errorf("open input: %w", err)
+			// When writing to stdout, redirect printer to stderr so only the bundle goes to stdout.
+			if useStdout {
+				printer.Writer = os.Stderr
 			}
-			defer inF.Close()
-
-			info, err := inF.Stat()
-			if err != nil {
-				return fmt.Errorf("stat input: %w", err)
-			}
-			inputSize := info.Size()
 
 			// Stream the plaintext through a TeeReader to hash and buffer simultaneously.
-			// The buffer holds the plaintext for encryption.
 			var plaintextBuf bytes.Buffer
-			hashReader := io.TeeReader(inF, &plaintextBuf)
+			hashReader := io.TeeReader(inputReader, &plaintextBuf)
 
 			digest, err := crypto.HashReader(hashReader, "sha256")
 			if err != nil {
 				return fmt.Errorf("hash plaintext: %w", err)
+			}
+
+			// For stdin, we now know the size.
+			if inputSize < 0 {
+				inputSize = int64(plaintextBuf.Len())
 			}
 
 			// Load or generate key.
@@ -115,7 +148,7 @@ func newProtectCmd() *cobra.Command {
 				Version:   bundle.ManifestVersion,
 				CreatedAt: time.Now().UTC().Format(time.RFC3339),
 				Input: bundle.InputMeta{
-					Name: filepath.Base(inFile),
+					Name: inputName,
 					Size: inputSize,
 				},
 				Plaintext: bundle.PlaintextHash{
@@ -167,13 +200,23 @@ func newProtectCmd() *cobra.Command {
 				sig = crypto.Sign(privKey, sigMsg)
 			}
 
-			// Write bundle with streaming payload.
-			err = bundle.Write(&bundle.WriteParams{
-				OutputPath:    outFile,
-				Payload:       &ciphertextBuf,
-				ManifestBytes: manifestBytes,
-				Signature:     sig,
-			})
+			// Write bundle.
+			if useStdout {
+				err = bundle.Write(&bundle.WriteParams{
+					OutputPath:    "", // unused for stdout
+					Payload:       &ciphertextBuf,
+					ManifestBytes: manifestBytes,
+					Signature:     sig,
+					Writer:        os.Stdout,
+				})
+			} else {
+				err = bundle.Write(&bundle.WriteParams{
+					OutputPath:    outFile,
+					Payload:       &ciphertextBuf,
+					ManifestBytes: manifestBytes,
+					Signature:     sig,
+				})
+			}
 			if err != nil {
 				return fmt.Errorf("write bundle: %w", err)
 			}
@@ -187,12 +230,16 @@ func newProtectCmd() *cobra.Command {
 
 			// Output.
 			signed := signFlag
+			outDesc := outFile
+			if useStdout {
+				outDesc = "stdout"
+			}
 			switch printer.Mode {
 			case OutputJSON:
 				return printer.JSON(map[string]any{
-					"bundle":      outFile,
+					"bundle":      outDesc,
 					"key_file":    keyOutFile,
-					"input":       inFile,
+					"input":       inputName,
 					"input_size":  inputSize,
 					"algo":        "aes-256-gcm",
 					"hash_algo":   "sha256",
@@ -202,8 +249,8 @@ func newProtectCmd() *cobra.Command {
 					"chunk_size":  chunkSize,
 				})
 			default:
-				printer.Human("Protected: %s", inFile)
-				printer.Human("Bundle:    %s", outFile)
+				printer.Human("Protected: %s", inputName)
+				printer.Human("Bundle:    %s", outDesc)
 				if keyOutFile != "" {
 					printer.Human("Key:       %s", keyOutFile)
 				}
@@ -217,13 +264,15 @@ func newProtectCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&inFile, "in", "", "input file to protect (required)")
+	cmd.Flags().StringVar(&inFile, "in", "", "input file to protect")
 	cmd.Flags().StringVar(&outFile, "out", "", "output .vpack path (default: <input>.vpack)")
 	cmd.Flags().StringVar(&keyOutFile, "key-out", "", "path to write the generated key (default: <input>.key)")
 	cmd.Flags().StringVar(&keyFile, "key", "", "path to an existing key (skips key generation)")
 	cmd.Flags().StringVar(&aadStr, "aad", "", "additional authenticated data (e.g. 'env=prod,app=payments')")
 	cmd.Flags().BoolVar(&signFlag, "sign", false, "sign the bundle with Ed25519")
 	cmd.Flags().StringVar(&signingPriv, "signing-priv", "", "path to Ed25519 private key (required with --sign)")
+	cmd.Flags().BoolVar(&useStdin, "stdin", false, "read plaintext from standard input")
+	cmd.Flags().BoolVar(&useStdout, "stdout", false, "write bundle to standard output")
 
 	return cmd
 }

@@ -22,19 +22,26 @@ type WriteParams struct {
 	Ciphertext    []byte    // used for non-streaming writes
 	Payload       io.Reader // used for streaming writes (takes precedence over Ciphertext)
 	ManifestBytes []byte
-	Signature     []byte // optional; nil if unsigned
+	Signature     []byte    // optional; nil if unsigned
+	Writer        io.Writer // optional; if set, write to this instead of OutputPath
 }
 
 // Write creates a .vpack ZIP file containing payload.bin and manifest.json,
 // and optionally signature.sig.
 func Write(p *WriteParams) error {
-	f, err := os.Create(p.OutputPath)
-	if err != nil {
-		return fmt.Errorf("create bundle: %w", err)
+	var w io.Writer
+	if p.Writer != nil {
+		w = p.Writer
+	} else {
+		f, err := os.Create(p.OutputPath)
+		if err != nil {
+			return fmt.Errorf("create bundle: %w", err)
+		}
+		defer f.Close()
+		w = f
 	}
-	defer f.Close()
 
-	zw := zip.NewWriter(f)
+	zw := zip.NewWriter(w)
 	defer zw.Close()
 
 	// Write payload.bin.

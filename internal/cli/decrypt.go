@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
@@ -13,16 +14,17 @@ import (
 
 func newDecryptCmd() *cobra.Command {
 	var (
-		inFile  string
-		outFile string
-		keyFile string
-		aadStr  string
+		inFile    string
+		outFile   string
+		keyFile   string
+		aadStr    string
+		useStdout bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "decrypt",
 		Short: "Decrypt a .vpack bundle",
-		Long:  "Read a .vpack bundle, decrypt the payload using the provided key, and write the plaintext.",
+		Long:  "Read a .vpack bundle, decrypt the payload using the provided key, and write the plaintext.\n\nUse --stdout to write decrypted plaintext to standard output.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := NewPrinter(flagJSON, flagQuiet)
 
@@ -32,8 +34,13 @@ func newDecryptCmd() *cobra.Command {
 			if keyFile == "" {
 				return fmt.Errorf("--key is required")
 			}
-			if outFile == "" {
-				return fmt.Errorf("--out is required")
+			if outFile == "" && !useStdout {
+				return fmt.Errorf("--out or --stdout is required")
+			}
+
+			// When writing to stdout, redirect printer to stderr.
+			if useStdout {
+				printer.Writer = os.Stderr
 			}
 
 			// Read bundle.
@@ -109,21 +116,36 @@ func newDecryptCmd() *cobra.Command {
 			}
 
 			// Write plaintext.
-			if err := os.WriteFile(outFile, plaintext, 0o600); err != nil {
+			var output io.Writer
+			if useStdout {
+				output = os.Stdout
+			} else {
+				f, err := os.Create(outFile)
+				if err != nil {
+					return fmt.Errorf("create output: %w", err)
+				}
+				defer f.Close()
+				output = f
+			}
+			if _, err := output.Write(plaintext); err != nil {
 				return fmt.Errorf("write output: %w", err)
 			}
 
 			// Output.
+			outDesc := outFile
+			if useStdout {
+				outDesc = "stdout"
+			}
 			switch printer.Mode {
 			case OutputJSON:
 				return printer.JSON(map[string]any{
 					"bundle": inFile,
-					"output": outFile,
+					"output": outDesc,
 					"size":   len(plaintext),
 				})
 			default:
 				printer.Human("Decrypted: %s", inFile)
-				printer.Human("Output:    %s", outFile)
+				printer.Human("Output:    %s", outDesc)
 				printer.Human("Size:      %d bytes", len(plaintext))
 			}
 			return nil
@@ -131,9 +153,10 @@ func newDecryptCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&inFile, "in", "", "input .vpack bundle (required)")
-	cmd.Flags().StringVar(&outFile, "out", "", "output plaintext path (required)")
+	cmd.Flags().StringVar(&outFile, "out", "", "output plaintext path")
 	cmd.Flags().StringVar(&keyFile, "key", "", "path to the decryption key (required)")
 	cmd.Flags().StringVar(&aadStr, "aad", "", "additional authenticated data (overrides manifest AAD)")
+	cmd.Flags().BoolVar(&useStdout, "stdout", false, "write decrypted plaintext to standard output")
 
 	return cmd
 }
