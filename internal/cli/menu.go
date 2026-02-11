@@ -72,6 +72,7 @@ func runProtectMenu(cmd *cobra.Command) error {
 		keyMode     string
 		password    string
 		kdfAlg      string
+		recipientPub string
 	)
 
 	err := huh.NewForm(
@@ -86,10 +87,11 @@ func runProtectMenu(cmd *cobra.Command) error {
 				Value(&outFile),
 			huh.NewSelect[string]().
 				Title("Key mode").
-				Description("Choose how to encrypt: generate a key file or use a password").
+				Description("Choose how to encrypt").
 				Options(
 					huh.NewOption("Generate key file (default)", "keyfile"),
 					huh.NewOption("Password-based encryption", "password"),
+					huh.NewOption("Recipient public key (hybrid)", "recipient"),
 				).
 				Value(&keyMode),
 		),
@@ -98,7 +100,8 @@ func runProtectMenu(cmd *cobra.Command) error {
 		return err
 	}
 
-	if keyMode == "keyfile" {
+	switch keyMode {
+	case "keyfile":
 		err = huh.NewInput().
 			Title("Key output path (leave blank for default)").
 			Placeholder("<input>.key").
@@ -107,7 +110,7 @@ func runProtectMenu(cmd *cobra.Command) error {
 		if err != nil {
 			return err
 		}
-	} else {
+	case "password":
 		err = huh.NewForm(
 			huh.NewGroup(
 				huh.NewInput().
@@ -125,6 +128,16 @@ func runProtectMenu(cmd *cobra.Command) error {
 					Value(&kdfAlg),
 			),
 		).Run()
+		if err != nil {
+			return err
+		}
+	case "recipient":
+		err = huh.NewInput().
+			Title("Recipient's public key (PEM)").
+			Placeholder("/path/to/recipient.pub").
+			Description("Scheme is auto-detected: X25519, ECIES-P256, RSA-OAEP").
+			Value(&recipientPub).
+			Run()
 		if err != nil {
 			return err
 		}
@@ -181,11 +194,15 @@ func runProtectMenu(cmd *cobra.Command) error {
 	if outFile != "" {
 		args = append(args, "--out", outFile)
 	}
-	if keyMode == "keyfile" && keyOutFile != "" {
-		args = append(args, "--key-out", keyOutFile)
-	}
-	if keyMode == "password" {
+	switch keyMode {
+	case "keyfile":
+		if keyOutFile != "" {
+			args = append(args, "--key-out", keyOutFile)
+		}
+	case "password":
 		args = append(args, "--password", password, "--kdf", kdfAlg)
+	case "recipient":
+		args = append(args, "--recipient", recipientPub)
 	}
 	if aad != "" {
 		args = append(args, "--aad", aad)
@@ -201,11 +218,12 @@ func runProtectMenu(cmd *cobra.Command) error {
 
 func runDecryptMenu(cmd *cobra.Command) error {
 	var (
-		inFile   string
-		outFile  string
-		keyMode  string
-		keyFile  string
-		password string
+		inFile     string
+		outFile    string
+		keyMode    string
+		keyFile    string
+		password   string
+		privKeyFile string
 	)
 
 	err := huh.NewForm(
@@ -223,6 +241,7 @@ func runDecryptMenu(cmd *cobra.Command) error {
 				Options(
 					huh.NewOption("Key file", "keyfile"),
 					huh.NewOption("Password", "password"),
+					huh.NewOption("Private key (hybrid)", "privkey"),
 				).
 				Value(&keyMode),
 		),
@@ -231,31 +250,38 @@ func runDecryptMenu(cmd *cobra.Command) error {
 		return err
 	}
 
-	if keyMode == "keyfile" {
+	switch keyMode {
+	case "keyfile":
 		err = huh.NewInput().
 			Title("Path to decryption key").
 			Placeholder("file.key").
 			Value(&keyFile).
 			Run()
-		if err != nil {
-			return err
-		}
-	} else {
+	case "password":
 		err = huh.NewInput().
 			Title("Password").
 			EchoMode(huh.EchoModePassword).
 			Value(&password).
 			Run()
-		if err != nil {
-			return err
-		}
+	case "privkey":
+		err = huh.NewInput().
+			Title("Path to private key (PEM)").
+			Placeholder("recipient.key").
+			Value(&privKeyFile).
+			Run()
+	}
+	if err != nil {
+		return err
 	}
 
 	args := []string{"decrypt", "--in", inFile, "--out", outFile}
-	if keyMode == "keyfile" {
+	switch keyMode {
+	case "keyfile":
 		args = append(args, "--key", keyFile)
-	} else {
+	case "password":
 		args = append(args, "--password", password)
+	case "privkey":
+		args = append(args, "--privkey", privKeyFile)
 	}
 
 	root := NewRootCmd()
@@ -343,13 +369,17 @@ func runKeygenMenu() error {
 				Description("Produces <prefix>.key (private) and <prefix>.pub (public)").
 				Value(&outPrefix),
 			huh.NewSelect[string]().
-				Title("Signing algorithm").
+				Title("Algorithm").
 				Options(
-					huh.NewOption("Ed25519 (default)", "ed25519"),
-					huh.NewOption("ECDSA P-256", "ecdsa-p256"),
-					huh.NewOption("ECDSA P-384", "ecdsa-p384"),
-					huh.NewOption("RSA-PSS 2048", "rsa-pss-2048"),
-					huh.NewOption("RSA-PSS 4096", "rsa-pss-4096"),
+					huh.NewOption("Ed25519 — signing (default)", "ed25519"),
+					huh.NewOption("ECDSA P-256 — signing", "ecdsa-p256"),
+					huh.NewOption("ECDSA P-384 — signing", "ecdsa-p384"),
+					huh.NewOption("RSA-PSS 2048 — signing", "rsa-pss-2048"),
+					huh.NewOption("RSA-PSS 4096 — signing", "rsa-pss-4096"),
+					huh.NewOption("X25519 — hybrid encryption", "x25519-aes-256-gcm"),
+					huh.NewOption("ECIES P-256 — hybrid encryption", "ecies-p256"),
+					huh.NewOption("RSA-OAEP 2048 — hybrid encryption", "rsa-oaep-2048"),
+					huh.NewOption("RSA-OAEP 4096 — hybrid encryption", "rsa-oaep-4096"),
 				).
 				Value(&signAlg),
 		),

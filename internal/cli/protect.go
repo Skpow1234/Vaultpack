@@ -34,6 +34,7 @@ func newProtectCmd() *cobra.Command {
 		kdfAlgo      string
 		kdfTime      uint32
 		kdfMemory    uint32
+		recipient    string
 	)
 
 	cmd := &cobra.Command{
@@ -59,10 +60,21 @@ func newProtectCmd() *cobra.Command {
 				return fmt.Errorf("unsupported cipher %q; supported: aes-256-gcm, chacha20-poly1305, xchacha20-poly1305", cipherName)
 			}
 
-			// Password and key are mutually exclusive.
+			// Mutual exclusivity: password, key, recipient.
 			usePassword := password != "" || passwordFile != ""
-			if usePassword && keyFile != "" {
-				return fmt.Errorf("--password/--password-file and --key are mutually exclusive")
+			useRecipient := recipient != ""
+			keyModes := 0
+			if usePassword {
+				keyModes++
+			}
+			if keyFile != "" {
+				keyModes++
+			}
+			if useRecipient {
+				keyModes++
+			}
+			if keyModes > 1 {
+				return fmt.Errorf("--password, --key, and --recipient are mutually exclusive")
 			}
 
 			// Resolve password from file if provided.
@@ -139,10 +151,43 @@ func newProtectCmd() *cobra.Command {
 				inputSize = int64(plaintextBuf.Len())
 			}
 
-			// Derive or load key.
+			// Derive, encapsulate, or load key.
 			var key []byte
 			var kdfMeta *bundle.KDFMeta
-			if usePassword {
+			var hybridMeta *bundle.HybridMeta
+			if useRecipient {
+				// Hybrid encryption: encapsulate DEK for recipient's public key.
+				scheme, err := crypto.DetectHybridScheme(recipient)
+				if err != nil {
+					return fmt.Errorf("detect hybrid scheme: %w", err)
+				}
+
+				result, err := crypto.HybridEncapsulate(scheme, recipient)
+				if err != nil {
+					return fmt.Errorf("hybrid encapsulate: %w", err)
+				}
+
+				key = result.DEK
+
+				recipientFP, err := crypto.RecipientKeyFingerprint(recipient)
+				if err != nil {
+					return fmt.Errorf("recipient fingerprint: %w", err)
+				}
+
+				hybridMeta = &bundle.HybridMeta{
+					Scheme:                    scheme,
+					RecipientFingerprintB64:   recipientFP,
+				}
+				if len(result.EphemeralPublicKey) > 0 {
+					hybridMeta.EphemeralPubKeyB64 = util.B64Encode(result.EphemeralPublicKey)
+				}
+				if len(result.WrappedDEK) > 0 {
+					hybridMeta.WrappedDEKB64 = util.B64Encode(result.WrappedDEK)
+				}
+
+				// No key file output for hybrid encryption.
+				keyOutFile = ""
+			} else if usePassword {
 				// Password-based key derivation.
 				kdfParams, err := crypto.DefaultKDFParams(kdfAlgo)
 				if err != nil {
@@ -246,6 +291,7 @@ func newProtectCmd() *cobra.Command {
 					AADB64:    aadB64,
 					ChunkSize: &chunkSize,
 					KDF:       kdfMeta,
+					Hybrid:    hybridMeta,
 					KeyID: bundle.KeyID{
 						Algo:      keyAlgo,
 						DigestB64: keyDigest,
@@ -356,12 +402,19 @@ func newProtectCmd() *cobra.Command {
 					result["kdf"] = kdfAlgo
 					result["password_protected"] = true
 				}
+				if useRecipient {
+					result["hybrid_scheme"] = hybridMeta.Scheme
+					result["recipient_encrypted"] = true
+				}
 				return printer.JSON(result)
 			default:
 				printer.Human("Protected: %s", inputName)
 				printer.Human("Bundle:    %s", outDesc)
 				if keyOutFile != "" {
 					printer.Human("Key:       %s", keyOutFile)
+				}
+				if useRecipient {
+					printer.Human("Hybrid:    %s", hybridMeta.Scheme)
 				}
 				if usePassword {
 					printer.Human("KDF:       %s", kdfAlgo)
@@ -393,6 +446,7 @@ func newProtectCmd() *cobra.Command {
 	cmd.Flags().StringVar(&kdfAlgo, "kdf", crypto.KDFArgon2id, "key derivation function: argon2id, scrypt, pbkdf2-sha256")
 	cmd.Flags().Uint32Var(&kdfTime, "kdf-time", 0, "Argon2id time parameter (default: 3)")
 	cmd.Flags().Uint32Var(&kdfMemory, "kdf-memory", 0, "Argon2id memory parameter in KiB (default: 65536 = 64MB)")
+	cmd.Flags().StringVar(&recipient, "recipient", "", "recipient's PEM public key (hybrid encryption)")
 
 	return cmd
 }

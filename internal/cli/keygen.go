@@ -16,16 +16,16 @@ func newKeygenCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "keygen",
-		Short: "Generate a signing key pair",
-		Long:  "Generate a new signing key pair for signing and verifying .vpack bundles.\n\nSupported algorithms: ed25519 (default), ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096.\nKeys are saved in PEM format (PKCS#8 private, PKIX public).",
+		Short: "Generate a key pair",
+		Long: "Generate a new key pair for signing, verifying, or hybrid encryption.\n\n" +
+			"Signing algorithms: ed25519 (default), ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096.\n" +
+			"Hybrid encryption: x25519, ecies-p256, rsa-oaep-2048, rsa-oaep-4096.\n" +
+			"Keys are saved in PEM format (PKCS#8 private, PKIX public).",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := NewPrinter(flagJSON, flagQuiet)
 
 			if outPrefix == "" {
 				return fmt.Errorf("--out is required (e.g. --out signing)")
-			}
-			if !crypto.SupportedSignAlgo(algo) {
-				return fmt.Errorf("unsupported signing algorithm %q; supported: ed25519, ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096", algo)
 			}
 
 			privPath := outPrefix
@@ -34,7 +34,20 @@ func newKeygenCmd() *cobra.Command {
 			}
 			pubPath := strings.TrimSuffix(privPath, ".key") + ".pub"
 
-			privPEM, pubPEM, err := crypto.GenerateSigningKeys(algo)
+			var privPEM, pubPEM []byte
+			var err error
+			var purpose string
+
+			// Check if it's a signing algorithm or hybrid scheme.
+			if crypto.SupportedSignAlgo(algo) {
+				privPEM, pubPEM, err = crypto.GenerateSigningKeys(algo)
+				purpose = "signing"
+			} else if crypto.SupportedHybridScheme(algo) {
+				privPEM, pubPEM, err = crypto.GenerateHybridKeys(algo)
+				purpose = "encryption"
+			} else {
+				return fmt.Errorf("unsupported algorithm %q; signing: ed25519, ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096; encryption: x25519, ecies-p256, rsa-oaep-2048, rsa-oaep-4096", algo)
+			}
 			if err != nil {
 				return fmt.Errorf("generate key pair: %w", err)
 			}
@@ -52,10 +65,11 @@ func newKeygenCmd() *cobra.Command {
 					"private_key": privPath,
 					"public_key":  pubPath,
 					"algorithm":   algo,
+					"purpose":     purpose,
 					"format":      "pem",
 				})
 			default:
-				printer.Human("Generated %s signing key pair:", algo)
+				printer.Human("Generated %s %s key pair:", algo, purpose)
 				printer.Human("  Private: %s (PEM/PKCS#8)", privPath)
 				printer.Human("  Public:  %s (PEM/PKIX)", pubPath)
 			}
@@ -64,7 +78,7 @@ func newKeygenCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&outPrefix, "out", "", "output path prefix (e.g. 'signing' produces signing.key + signing.pub)")
-	cmd.Flags().StringVar(&algo, "algo", crypto.SignAlgoEd25519, "signing algorithm: ed25519, ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096")
+	cmd.Flags().StringVar(&algo, "algo", crypto.SignAlgoEd25519, "algorithm (see --help for full list)")
 
 	return cmd
 }

@@ -22,6 +22,7 @@ func newDecryptCmd() *cobra.Command {
 		useStdout    bool
 		password     string
 		passwordFile string
+		privKeyFile  string
 	)
 
 	cmd := &cobra.Command{
@@ -53,8 +54,21 @@ func newDecryptCmd() *cobra.Command {
 			}
 
 			usePassword := password != ""
-			if usePassword && keyFile != "" {
-				return fmt.Errorf("--password/--password-file and --key are mutually exclusive")
+			usePrivKey := privKeyFile != ""
+
+			// Mutual exclusivity.
+			modes := 0
+			if usePassword {
+				modes++
+			}
+			if keyFile != "" {
+				modes++
+			}
+			if usePrivKey {
+				modes++
+			}
+			if modes > 1 {
+				return fmt.Errorf("--password, --key, and --privkey are mutually exclusive")
 			}
 
 			// Read bundle.
@@ -63,19 +77,48 @@ func newDecryptCmd() *cobra.Command {
 				return fmt.Errorf("read bundle: %w", err)
 			}
 
-			// Determine if bundle was password-protected.
+			// Determine encryption mode from manifest.
 			bundleUsesKDF := br.Manifest.Encryption.KDF != nil
+			bundleUsesHybrid := br.Manifest.Encryption.Hybrid != nil
 
-			if bundleUsesKDF && !usePassword && keyFile == "" {
-				return fmt.Errorf("this bundle is password-protected; provide --password or --password-file")
-			}
-			if !bundleUsesKDF && !usePassword && keyFile == "" {
-				return fmt.Errorf("--key is required (or --password for password-protected bundles)")
+			// Guide user to the right flag.
+			if modes == 0 {
+				if bundleUsesHybrid {
+					return fmt.Errorf("this bundle uses hybrid encryption; provide --privkey <your-private-key.pem>")
+				}
+				if bundleUsesKDF {
+					return fmt.Errorf("this bundle is password-protected; provide --password or --password-file")
+				}
+				return fmt.Errorf("--key is required (or --password / --privkey)")
 			}
 
-			// Load or derive key.
+			// Load, derive, or decapsulate key.
 			var key []byte
-			if usePassword {
+			if usePrivKey {
+				if !bundleUsesHybrid {
+					return fmt.Errorf("bundle was not encrypted with hybrid encryption; use --key or --password")
+				}
+				h := br.Manifest.Encryption.Hybrid
+				var ephPub, wrappedDEK []byte
+				if h.EphemeralPubKeyB64 != "" {
+					ephPub, err = util.B64Decode(h.EphemeralPubKeyB64)
+					if err != nil {
+						return fmt.Errorf("decode ephemeral public key: %w", err)
+					}
+				}
+				if h.WrappedDEKB64 != "" {
+					wrappedDEK, err = util.B64Decode(h.WrappedDEKB64)
+					if err != nil {
+						return fmt.Errorf("decode wrapped DEK: %w", err)
+					}
+				}
+				key, err = crypto.HybridDecapsulate(h.Scheme, privKeyFile, ephPub, wrappedDEK)
+				if err != nil {
+					printer.Error(util.ErrDecryptFailed, fmt.Sprintf("hybrid decapsulation failed: %v", err))
+					os.Exit(util.ExitDecryptFailed)
+					return nil
+				}
+			} else if usePassword {
 				if !bundleUsesKDF {
 					return fmt.Errorf("bundle was not encrypted with a password; use --key instead")
 				}
@@ -218,6 +261,7 @@ func newDecryptCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&useStdout, "stdout", false, "write decrypted plaintext to standard output")
 	cmd.Flags().StringVar(&password, "password", "", "decrypt with a password")
 	cmd.Flags().StringVar(&passwordFile, "password-file", "", "read password from file")
+	cmd.Flags().StringVar(&privKeyFile, "privkey", "", "private key for hybrid decryption (PEM)")
 
 	return cmd
 }

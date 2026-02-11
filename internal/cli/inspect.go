@@ -75,6 +75,18 @@ func newInspectCmd() *cobra.Command {
 					printer.Human("  Iter:     %d", m.Encryption.KDF.Iterations)
 				}
 			}
+			if m.Encryption.Hybrid != nil {
+				printer.Human("")
+				printer.Human("Hybrid Encryption:")
+				printer.Human("  Scheme:   %s", m.Encryption.Hybrid.Scheme)
+				if m.Encryption.Hybrid.EphemeralPubKeyB64 != "" {
+					printer.Human("  Eph.Key:  %s", m.Encryption.Hybrid.EphemeralPubKeyB64)
+				}
+				if m.Encryption.Hybrid.WrappedDEKB64 != "" {
+					printer.Human("  Wrapped:  %s...", m.Encryption.Hybrid.WrappedDEKB64[:32])
+				}
+				printer.Human("  Recip.FP: %s", m.Encryption.Hybrid.RecipientFingerprintB64)
+			}
 			if m.SignatureAlgo != nil {
 				printer.Human("")
 				printer.Human("Signature:")

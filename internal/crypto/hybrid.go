@@ -1,0 +1,414 @@
+package crypto
+
+import (
+	"crypto/ecdh"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/pem"
+	"fmt"
+	"os"
+
+	"golang.org/x/crypto/hkdf"
+
+	"github.com/Skpow1234/Vaultpack/internal/util"
+)
+
+// Hybrid encryption scheme names.
+const (
+	HybridX25519AES256GCM = "x25519-aes-256-gcm"
+	HybridECIESP256       = "ecies-p256"
+	HybridRSAOAEP2048     = "rsa-oaep-2048"
+	HybridRSAOAEP4096     = "rsa-oaep-4096"
+)
+
+// SupportedHybridSchemes is the list of supported hybrid/asymmetric encryption scheme names.
+var SupportedHybridSchemes = []string{
+	HybridX25519AES256GCM,
+	HybridECIESP256,
+	HybridRSAOAEP2048,
+	HybridRSAOAEP4096,
+}
+
+// SupportedHybridScheme checks whether the given scheme name is supported.
+func SupportedHybridScheme(name string) bool {
+	for _, s := range SupportedHybridSchemes {
+		if s == name {
+			return true
+		}
+	}
+	return false
+}
+
+// HybridResult holds the output of a hybrid encryption key encapsulation.
+type HybridResult struct {
+	DEK                []byte // Data Encryption Key (32 bytes)
+	EphemeralPublicKey []byte // Ephemeral public key bytes (for ECDH schemes)
+	WrappedDEK         []byte // Wrapped DEK (for RSA-OAEP schemes)
+	Scheme             string // Scheme name
+}
+
+// HybridEncapsulate generates a random DEK and encapsulates it for the recipient.
+// recipientPubKeyPath is the path to the recipient's PEM-encoded public key.
+func HybridEncapsulate(scheme string, recipientPubKeyPath string) (*HybridResult, error) {
+	pubKeyBytes, err := os.ReadFile(recipientPubKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("read recipient public key: %w", err)
+	}
+
+	pubKey, err := parsePublicKeyPEM(pubKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse recipient public key: %w", err)
+	}
+
+	switch scheme {
+	case HybridX25519AES256GCM:
+		return encapsulateX25519(pubKey)
+	case HybridECIESP256:
+		return encapsulateECIESP256(pubKey)
+	case HybridRSAOAEP2048, HybridRSAOAEP4096:
+		return encapsulateRSAOAEP(pubKey, scheme)
+	default:
+		return nil, fmt.Errorf("unsupported hybrid scheme %q", scheme)
+	}
+}
+
+// HybridDecapsulate recovers the DEK using the recipient's private key.
+func HybridDecapsulate(scheme string, privKeyPath string, ephemeralPubKey, wrappedDEK []byte) ([]byte, error) {
+	privKeyBytes, err := os.ReadFile(privKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("read private key: %w", err)
+	}
+
+	privKey, err := parsePrivateKeyPEM(privKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse private key: %w", err)
+	}
+
+	switch scheme {
+	case HybridX25519AES256GCM:
+		return decapsulateX25519(privKey, ephemeralPubKey)
+	case HybridECIESP256:
+		return decapsulateECIESP256(privKey, ephemeralPubKey)
+	case HybridRSAOAEP2048, HybridRSAOAEP4096:
+		return decapsulateRSAOAEP(privKey, wrappedDEK)
+	default:
+		return nil, fmt.Errorf("unsupported hybrid scheme %q", scheme)
+	}
+}
+
+// --- X25519 + HKDF-SHA256 ---
+
+func encapsulateX25519(recipientPub any) (*HybridResult, error) {
+	var recipientX25519 *ecdh.PublicKey
+
+	switch k := recipientPub.(type) {
+	case *ecdh.PublicKey:
+		recipientX25519 = k
+	default:
+		return nil, fmt.Errorf("x25519: expected X25519 public key, got %T", recipientPub)
+	}
+
+	// Generate ephemeral X25519 key pair.
+	ephPriv, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("x25519: generate ephemeral key: %w", err)
+	}
+
+	// ECDH shared secret.
+	shared, err := ephPriv.ECDH(recipientX25519)
+	if err != nil {
+		return nil, fmt.Errorf("x25519: ECDH: %w", err)
+	}
+
+	// HKDF-SHA256 to derive DEK.
+	dek, err := hkdfDerive(shared, nil, []byte("vaultpack-x25519-dek"), AES256KeySize)
+	if err != nil {
+		return nil, fmt.Errorf("x25519: HKDF: %w", err)
+	}
+
+	return &HybridResult{
+		DEK:                dek,
+		EphemeralPublicKey: ephPriv.PublicKey().Bytes(),
+		Scheme:             HybridX25519AES256GCM,
+	}, nil
+}
+
+func decapsulateX25519(privKey any, ephemeralPubKeyBytes []byte) ([]byte, error) {
+	var recipientPriv *ecdh.PrivateKey
+
+	switch k := privKey.(type) {
+	case *ecdh.PrivateKey:
+		recipientPriv = k
+	default:
+		return nil, fmt.Errorf("x25519: expected X25519 private key, got %T", privKey)
+	}
+
+	ephPub, err := ecdh.X25519().NewPublicKey(ephemeralPubKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("x25519: parse ephemeral public key: %w", err)
+	}
+
+	shared, err := recipientPriv.ECDH(ephPub)
+	if err != nil {
+		return nil, fmt.Errorf("x25519: ECDH: %w", err)
+	}
+
+	dek, err := hkdfDerive(shared, nil, []byte("vaultpack-x25519-dek"), AES256KeySize)
+	if err != nil {
+		return nil, fmt.Errorf("x25519: HKDF: %w", err)
+	}
+
+	return dek, nil
+}
+
+// --- ECIES P-256 (Ephemeral P-256 → ECDH → HKDF → DEK) ---
+
+func encapsulateECIESP256(recipientPub any) (*HybridResult, error) {
+	ecPub, ok := recipientPub.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("ecies-p256: expected ECDSA P-256 public key, got %T", recipientPub)
+	}
+	if ecPub.Curve != elliptic.P256() {
+		return nil, fmt.Errorf("ecies-p256: expected P-256, got %s", ecPub.Curve.Params().Name)
+	}
+
+	// Convert to ECDH.
+	recipientECDH, err := ecPub.ECDH()
+	if err != nil {
+		return nil, fmt.Errorf("ecies-p256: convert public key to ECDH: %w", err)
+	}
+
+	// Generate ephemeral P-256 key pair.
+	ephPriv, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("ecies-p256: generate ephemeral: %w", err)
+	}
+
+	// ECDH.
+	shared, err := ephPriv.ECDH(recipientECDH)
+	if err != nil {
+		return nil, fmt.Errorf("ecies-p256: ECDH: %w", err)
+	}
+
+	dek, err := hkdfDerive(shared, nil, []byte("vaultpack-ecies-p256-dek"), AES256KeySize)
+	if err != nil {
+		return nil, fmt.Errorf("ecies-p256: HKDF: %w", err)
+	}
+
+	// Encode ephemeral public key as uncompressed point.
+	ephPubBytes := ephPriv.PublicKey().Bytes()
+
+	return &HybridResult{
+		DEK:                dek,
+		EphemeralPublicKey: ephPubBytes,
+		Scheme:             HybridECIESP256,
+	}, nil
+}
+
+func decapsulateECIESP256(privKey any, ephemeralPubKeyBytes []byte) ([]byte, error) {
+	ecPriv, ok := privKey.(*ecdsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("ecies-p256: expected ECDSA private key, got %T", privKey)
+	}
+
+	recipientPrivECDH, err := ecPriv.ECDH()
+	if err != nil {
+		return nil, fmt.Errorf("ecies-p256: convert private key: %w", err)
+	}
+
+	ephPub, err := ecdh.P256().NewPublicKey(ephemeralPubKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("ecies-p256: parse ephemeral public key: %w", err)
+	}
+
+	shared, err := recipientPrivECDH.ECDH(ephPub)
+	if err != nil {
+		return nil, fmt.Errorf("ecies-p256: ECDH: %w", err)
+	}
+
+	dek, err := hkdfDerive(shared, nil, []byte("vaultpack-ecies-p256-dek"), AES256KeySize)
+	if err != nil {
+		return nil, fmt.Errorf("ecies-p256: HKDF: %w", err)
+	}
+
+	return dek, nil
+}
+
+// --- RSA-OAEP-SHA256 key wrapping ---
+
+func encapsulateRSAOAEP(recipientPub any, scheme string) (*HybridResult, error) {
+	rsaPub, ok := recipientPub.(*rsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("rsa-oaep: expected RSA public key, got %T", recipientPub)
+	}
+
+	// Generate a random DEK.
+	dek := make([]byte, AES256KeySize)
+	if _, err := rand.Read(dek); err != nil {
+		return nil, fmt.Errorf("rsa-oaep: generate DEK: %w", err)
+	}
+
+	// Wrap DEK with RSA-OAEP.
+	wrappedDEK, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaPub, dek, []byte("vaultpack-dek"))
+	if err != nil {
+		return nil, fmt.Errorf("rsa-oaep: encrypt DEK: %w", err)
+	}
+
+	return &HybridResult{
+		DEK:        dek,
+		WrappedDEK: wrappedDEK,
+		Scheme:     scheme,
+	}, nil
+}
+
+func decapsulateRSAOAEP(privKey any, wrappedDEK []byte) ([]byte, error) {
+	rsaPriv, ok := privKey.(*rsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("rsa-oaep: expected RSA private key, got %T", privKey)
+	}
+
+	dek, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, rsaPriv, wrappedDEK, []byte("vaultpack-dek"))
+	if err != nil {
+		return nil, fmt.Errorf("rsa-oaep: decrypt DEK: %w", err)
+	}
+
+	return dek, nil
+}
+
+// --- Key generation for hybrid schemes ---
+
+// GenerateHybridKeys generates a private/public key pair for the given hybrid scheme.
+// Returns PEM-encoded private and public keys.
+func GenerateHybridKeys(scheme string) (privPEM, pubPEM []byte, err error) {
+	switch scheme {
+	case HybridX25519AES256GCM:
+		priv, err := ecdh.X25519().GenerateKey(rand.Reader)
+		if err != nil {
+			return nil, nil, fmt.Errorf("generate x25519: %w", err)
+		}
+		privPEM, err = marshalECDHPrivateKeyPEM(priv)
+		if err != nil {
+			return nil, nil, err
+		}
+		pubPEM, err = marshalECDHPublicKeyPEM(priv.PublicKey())
+		if err != nil {
+			return nil, nil, err
+		}
+		return privPEM, pubPEM, nil
+
+	case HybridECIESP256:
+		// Reuse ECDSA P-256 keygen (ECIES uses the same key type).
+		return generateECDSAKeys(elliptic.P256())
+
+	case HybridRSAOAEP2048:
+		return generateRSAKeys(2048)
+
+	case HybridRSAOAEP4096:
+		return generateRSAKeys(4096)
+
+	default:
+		return nil, nil, fmt.Errorf("unsupported hybrid scheme %q", scheme)
+	}
+}
+
+// DetectHybridScheme detects the hybrid scheme from a recipient public key file.
+func DetectHybridScheme(pubKeyPath string) (string, error) {
+	data, err := os.ReadFile(pubKeyPath)
+	if err != nil {
+		return "", fmt.Errorf("read public key: %w", err)
+	}
+
+	pubKey, err := parsePublicKeyPEM(data)
+	if err != nil {
+		return "", err
+	}
+
+	switch k := pubKey.(type) {
+	case *ecdh.PublicKey:
+		return HybridX25519AES256GCM, nil
+	case *ecdsa.PublicKey:
+		if k.Curve == elliptic.P256() {
+			return HybridECIESP256, nil
+		}
+		return "", fmt.Errorf("unsupported ECDSA curve for hybrid encryption: %s", k.Curve.Params().Name)
+	case *rsa.PublicKey:
+		bits := k.N.BitLen()
+		if bits <= 2048 {
+			return HybridRSAOAEP2048, nil
+		}
+		return HybridRSAOAEP4096, nil
+	default:
+		return "", fmt.Errorf("unsupported key type for hybrid encryption: %T", pubKey)
+	}
+}
+
+// --- PEM helpers for ECDH (X25519) keys ---
+
+func marshalECDHPrivateKeyPEM(key *ecdh.PrivateKey) ([]byte, error) {
+	// Go 1.20+ supports marshaling ECDH keys via PKCS#8.
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("marshal X25519 private key: %w", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: der,
+	}), nil
+}
+
+func marshalECDHPublicKeyPEM(key *ecdh.PublicKey) ([]byte, error) {
+	der, err := x509.MarshalPKIXPublicKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("marshal X25519 public key: %w", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: der,
+	}), nil
+}
+
+// parsePublicKeyPEM parses a PEM-encoded public key (supports ECDH, ECDSA, RSA).
+func parsePublicKeyPEM(data []byte) (any, error) {
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, fmt.Errorf("no PEM block found")
+	}
+	return x509.ParsePKIXPublicKey(block.Bytes)
+}
+
+// parsePrivateKeyPEM parses a PEM-encoded private key (supports ECDH, ECDSA, RSA).
+func parsePrivateKeyPEM(data []byte) (any, error) {
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, fmt.Errorf("no PEM block found")
+	}
+	return x509.ParsePKCS8PrivateKey(block.Bytes)
+}
+
+// hkdfDerive uses HKDF-SHA256 to derive a key.
+func hkdfDerive(secret, salt, info []byte, keyLen int) ([]byte, error) {
+	reader := hkdf.New(sha256.New, secret, salt, info)
+	key := make([]byte, keyLen)
+	if _, err := reader.Read(key); err != nil {
+		return nil, fmt.Errorf("HKDF: %w", err)
+	}
+	return key, nil
+}
+
+// RecipientKeyFingerprint computes a SHA-256 fingerprint of a recipient's public key file.
+func RecipientKeyFingerprint(pubKeyPath string) (string, error) {
+	data, err := os.ReadFile(pubKeyPath)
+	if err != nil {
+		return "", fmt.Errorf("read public key: %w", err)
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return "", fmt.Errorf("no PEM block found")
+	}
+	h := sha256.Sum256(block.Bytes)
+	return util.B64Encode(h[:]), nil
+}

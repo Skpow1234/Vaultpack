@@ -25,6 +25,11 @@ vaultpack decrypt --in config.json.vpack --out config.json --key config.json.key
 # Decrypt a password-protected bundle
 vaultpack decrypt --in config.json.vpack --out config.json --password "my-secret-passphrase"
 
+# Encrypt for a recipient's public key (hybrid encryption)
+vaultpack keygen --out alice --algo x25519-aes-256-gcm
+vaultpack protect --in config.json --recipient alice.pub
+vaultpack decrypt --in config.json.vpack --out config.json --privkey alice.key
+
 # Inspect the bundle metadata
 vaultpack inspect --in config.json.vpack
 
@@ -102,6 +107,7 @@ vaultpack protect --in <file> [flags]
 | `--kdf`          | `argon2id`       | KDF: `argon2id`, `scrypt`, `pbkdf2-sha256` |
 | `--kdf-time`     | `3`              | Argon2id time parameter                    |
 | `--kdf-memory`   | `65536`          | Argon2id memory in KiB (64 MB default)     |
+| `--recipient`    |                  | Recipient PEM public key (hybrid encrypt)  |
 | `--stdin`        |                  | Read plaintext from standard input         |
 | `--stdout`       |                  | Write bundle to standard output            |
 
@@ -122,19 +128,21 @@ Decryption auto-detects the cipher from the bundle manifest.
 ```bash
 vaultpack decrypt --in <bundle> --out <file> --key <keyfile>
 vaultpack decrypt --in <bundle> --out <file> --password "passphrase"
+vaultpack decrypt --in <bundle> --out <file> --privkey recipient.key
 ```
 
 | Flag              | Default    | Description                                        |
 | ----------------- | ---------- | -------------------------------------------------- |
 | `--in`            | (required) | Input `.vpack` bundle                              |
 | `--out`           |            | Output plaintext path                              |
-| `--key`           |            | Path to the decryption key                         |
+| `--key`           |            | Path to the symmetric decryption key               |
 | `--password`      |            | Decrypt with a password                            |
 | `--password-file` |            | Read password from file                            |
+| `--privkey`       |            | Private key for hybrid decryption (PEM)            |
 | `--aad`           |            | Override AAD from manifest                         |
 | `--stdout`        |            | Write decrypted plaintext to standard output       |
 
-Provide either `--key` or `--password` (not both). For password-protected bundles, the KDF parameters are auto-detected from the manifest.
+Provide exactly one of `--key`, `--password`, or `--privkey`. The correct method is auto-detected from the manifest.
 
 ### `inspect` -- Show bundle metadata
 
@@ -155,18 +163,32 @@ vaultpack hash --in <file> [--algo sha256]
 | `--in` | (required) | File to hash |
 | `--algo` | `sha256` | Hash algorithm: `sha256`, `sha512`, `sha3-256`, `sha3-512`, `blake2b-256`, `blake2b-512`, `blake3` |
 
-### `keygen` -- Generate a signing key pair
+### `keygen` -- Generate a key pair
 
 ```bash
 vaultpack keygen --out <prefix> [--algo ed25519]
 ```
 
-   | Flag     | Default    | Description                                                                              |
-   | -------- | ---------- | -----------------------------------------------------------------------------------------|
-   | `--out`  | (required) | Output path prefix (produces `<prefix>.key` + `<prefix>.pub`)                            |
-   | `--algo` | `ed25519`  | Signing algorithm: `ed25519`, `ecdsa-p256`, `ecdsa-p384`, `rsa-pss-2048`, `rsa-pss-4096` |
+| Flag     | Default    | Description                                            |
+| -------- | ---------- | ------------------------------------------------------ |
+| `--out`  | (required) | Output prefix (`<prefix>.key` + `<prefix>.pub`)        |
+| `--algo` | `ed25519`  | Algorithm (see table below)                            |
 
-Keys are saved in PEM format (PKCS#8 private, PKIX public). Legacy Ed25519 raw keys are still accepted for backward compatibility.
+Supported algorithms:
+
+| Algorithm             | Purpose    | Notes                                      |
+| --------------------- | ---------- | ------------------------------------------ |
+| `ed25519`             | Signing    | Fast, compact (default)                    |
+| `ecdsa-p256`          | Signing    | NIST P-256 curve                           |
+| `ecdsa-p384`          | Signing    | NIST P-384 curve                           |
+| `rsa-pss-2048`        | Signing    | RSA-PSS 2048-bit                           |
+| `rsa-pss-4096`        | Signing    | RSA-PSS 4096-bit                           |
+| `x25519-aes-256-gcm`  | Encryption | X25519 ECDH + HKDF + AES-256-GCM           |
+| `ecies-p256`          | Encryption | ECIES with P-256 ECDH + HKDF               |
+| `rsa-oaep-2048`       | Encryption | RSA-OAEP-SHA256 key wrapping (2048-bit)    |
+| `rsa-oaep-4096`       | Encryption | RSA-OAEP-SHA256 key wrapping (4096-bit)    |
+
+Keys are saved in PEM format (PKCS#8 private, PKIX public).
 
 ### `sign` -- Sign a `.vpack` bundle
 
@@ -226,8 +248,10 @@ artifact.vpack
 - **Hashing**: SHA-256 (default), SHA-512, SHA3-256, SHA3-512, BLAKE2b-256, BLAKE2b-512, BLAKE3
 - **Signing**: Ed25519, ECDSA (P-256/P-384), RSA-PSS (2048/4096) -- detached signatures over canonical manifest + payload hash
 - **Key Derivation**: Argon2id (default, t=3, m=64MB, p=4), scrypt (N=32768, r=8, p=1), PBKDF2-SHA256 (600k iterations)
+- **Hybrid Encryption**: X25519+HKDF+AES-256-GCM, ECIES-P256, RSA-OAEP-SHA256 (2048/4096)
 - **Key fingerprint**: SHA-256 of the derived/raw key, stored in the manifest for early mismatch detection
-- Passwords and keys are never stored inside the bundle
+- Ephemeral keys ensure forward secrecy for ECDH-based hybrid schemes
+- Passwords, keys, and private keys are never stored inside the bundle
 
 ## Development
 

@@ -28,13 +28,22 @@ type PlaintextHash struct {
 
 // EncryptionMeta describes the AEAD encryption parameters.
 type EncryptionMeta struct {
-	AEAD      string    `json:"aead"`
-	NonceB64  string    `json:"nonce_b64"`
-	TagB64    string    `json:"tag_b64"`
-	AADB64    *string   `json:"aad_b64"`
-	KeyID     KeyID     `json:"key_id"`
-	ChunkSize *int      `json:"chunk_size,omitempty"` // nil for non-chunked (backward compat)
-	KDF       *KDFMeta  `json:"kdf,omitempty"`        // nil for key-file encryption
+	AEAD      string      `json:"aead"`
+	NonceB64  string      `json:"nonce_b64"`
+	TagB64    string      `json:"tag_b64"`
+	AADB64    *string     `json:"aad_b64"`
+	KeyID     KeyID       `json:"key_id"`
+	ChunkSize *int        `json:"chunk_size,omitempty"` // nil for non-chunked (backward compat)
+	KDF       *KDFMeta    `json:"kdf,omitempty"`        // nil for key-file encryption
+	Hybrid    *HybridMeta `json:"hybrid,omitempty"`     // nil for symmetric-only encryption
+}
+
+// HybridMeta describes the hybrid/asymmetric key encapsulation parameters.
+type HybridMeta struct {
+	Scheme                string `json:"scheme"`                            // e.g. "x25519-aes-256-gcm"
+	EphemeralPubKeyB64    string `json:"ephemeral_public_key_b64,omitempty"` // for ECDH schemes
+	WrappedDEKB64         string `json:"wrapped_dek_b64,omitempty"`          // for RSA-OAEP schemes
+	RecipientFingerprintB64 string `json:"recipient_fingerprint_b64"`        // SHA-256 of recipient's public key
 }
 
 // KDFMeta describes the key derivation function parameters for password-based encryption.
