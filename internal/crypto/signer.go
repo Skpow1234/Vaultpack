@@ -19,11 +19,13 @@ import (
 
 // Signing algorithm names.
 const (
-	SignAlgoEd25519   = "ed25519"
-	SignAlgoECDSAP256 = "ecdsa-p256"
-	SignAlgoECDSAP384 = "ecdsa-p384"
+	SignAlgoEd25519    = "ed25519"
+	SignAlgoECDSAP256  = "ecdsa-p256"
+	SignAlgoECDSAP384  = "ecdsa-p384"
 	SignAlgoRSAPSS2048 = "rsa-pss-2048"
 	SignAlgoRSAPSS4096 = "rsa-pss-4096"
+	SignAlgoMLDSA65    = "ml-dsa-65"
+	SignAlgoMLDSA87    = "ml-dsa-87"
 )
 
 // SupportedSignAlgos is the list of supported signing algorithm names.
@@ -33,6 +35,8 @@ var SupportedSignAlgos = []string{
 	SignAlgoECDSAP384,
 	SignAlgoRSAPSS2048,
 	SignAlgoRSAPSS4096,
+	SignAlgoMLDSA65,
+	SignAlgoMLDSA87,
 }
 
 // SupportedSignAlgo checks whether the given signing algorithm is supported.
@@ -76,6 +80,9 @@ func GenerateSigningKeys(algo string) (privPEM, pubPEM []byte, err error) {
 
 	case SignAlgoRSAPSS4096:
 		return generateRSAKeys(4096)
+
+	case SignAlgoMLDSA65, SignAlgoMLDSA87:
+		return GenerateMLDSAKeys(algo)
 
 	default:
 		return nil, nil, fmt.Errorf("unsupported signing algorithm %q", algo)
@@ -171,6 +178,14 @@ func LoadPrivateKey(path string) (crypto.Signer, string, error) {
 		return nil, "", fmt.Errorf("no PEM block found in %s", path)
 	}
 
+	if mldsa, _ := ParseMLDSAPrivateKeyPEM(block); mldsa != nil {
+		algo := SignAlgoMLDSA65
+		if block.Type == pemTypeMLDSA87Priv {
+			algo = SignAlgoMLDSA87
+		}
+		return mldsa, algo, nil
+	}
+
 	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
 		return nil, "", fmt.Errorf("parse private key: %w", err)
@@ -193,9 +208,9 @@ func LoadPrivateKey(path string) (crypto.Signer, string, error) {
 		switch {
 		case bits <= 2048:
 			return k, SignAlgoRSAPSS2048, nil
-		default:
-			return k, SignAlgoRSAPSS4096, nil
-		}
+	default:
+		return k, SignAlgoRSAPSS4096, nil
+	}
 	default:
 		return nil, "", fmt.Errorf("unsupported private key type: %T", key)
 	}
@@ -227,6 +242,14 @@ func LoadAnyPublicKey(path string) (crypto.PublicKey, string, error) {
 	block, _ := pem.Decode(data)
 	if block == nil {
 		return nil, "", fmt.Errorf("no PEM block found in %s", path)
+	}
+
+	if mldsa, _ := ParseMLDSAPublicKeyPEM(block); mldsa != nil {
+		algo := SignAlgoMLDSA65
+		if block.Type == pemTypeMLDSA87Pub {
+			algo = SignAlgoMLDSA87
+		}
+		return mldsa, algo, nil
 	}
 
 	key, err := x509.ParsePKIXPublicKey(block.Bytes)
@@ -289,6 +312,13 @@ func SignMessage(signer crypto.Signer, algo string, message []byte) ([]byte, err
 		}
 		return rsa.SignPSS(rand.Reader, rsaKey, crypto.SHA256, hash[:], opts)
 
+	case SignAlgoMLDSA65, SignAlgoMLDSA87:
+		mldsa, ok := signer.(*MLDSASigner)
+		if !ok {
+			return nil, fmt.Errorf("key type mismatch: expected ML-DSA signer, got %T", signer)
+		}
+		return mldsa.Scheme.Sign(mldsa.Key, message, nil), nil
+
 	default:
 		return nil, fmt.Errorf("unsupported signing algorithm %q", algo)
 	}
@@ -324,6 +354,13 @@ func VerifySignature(pubKey crypto.PublicKey, algo string, message, sig []byte) 
 		}
 		err := rsa.VerifyPSS(rsaKey, crypto.SHA256, hash[:], sig, opts)
 		return err == nil, nil
+
+	case SignAlgoMLDSA65, SignAlgoMLDSA87:
+		mldsa, ok := pubKey.(*MLDSAPublicKey)
+		if !ok {
+			return false, fmt.Errorf("key type mismatch: expected ML-DSA public key, got %T", pubKey)
+		}
+		return VerifyMLDSA(mldsa, message, sig), nil
 
 	default:
 		return false, fmt.Errorf("unsupported signing algorithm %q", algo)

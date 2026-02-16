@@ -18,9 +18,9 @@ func newKeygenCmd() *cobra.Command {
 		Use:   "keygen",
 		Short: "Generate a key pair",
 		Long: "Generate a new key pair for signing, verifying, or hybrid encryption.\n\n" +
-			"Signing algorithms: ed25519 (default), ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096.\n" +
-			"Hybrid encryption: x25519, ecies-p256, rsa-oaep-2048, rsa-oaep-4096.\n" +
-			"Keys are saved in PEM format (PKCS#8 private, PKIX public).",
+			"Signing algorithms: ed25519 (default), ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096, ml-dsa-65, ml-dsa-87.\n" +
+			"Hybrid encryption: x25519, ecies-p256, rsa-oaep-2048, rsa-oaep-4096, ml-kem-768, ml-kem-1024.\n" +
+			"Keys are saved in PEM format (PKCS#8 private, PKIX public; ML-KEM/ML-DSA use custom PEM types).",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := NewPrinter(flagJSON, flagQuiet)
 
@@ -46,7 +46,7 @@ func newKeygenCmd() *cobra.Command {
 				privPEM, pubPEM, err = crypto.GenerateHybridKeys(algo)
 				purpose = "encryption"
 			} else {
-				return fmt.Errorf("unsupported algorithm %q; signing: ed25519, ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096; encryption: x25519, ecies-p256, rsa-oaep-2048, rsa-oaep-4096", algo)
+				return fmt.Errorf("unsupported algorithm %q; signing: ed25519, ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096, ml-dsa-65, ml-dsa-87; encryption: x25519, ecies-p256, rsa-oaep-2048, rsa-oaep-4096, ml-kem-768, ml-kem-1024", algo)
 			}
 			if err != nil {
 				return fmt.Errorf("generate key pair: %w", err)

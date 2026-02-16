@@ -41,8 +41,14 @@ Desktop.ini
 *.key
 *.pem
 *.priv
+*.pub
 signing.key
 signing.pub
+
+# Local test / sample files
+*.txt
+nul
+NUL
 
 # VaultPack bundles (don't commit test outputs)
 *.vpack

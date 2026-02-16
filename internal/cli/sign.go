@@ -22,7 +22,7 @@ func newSignCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sign",
 		Short: "Sign a .vpack bundle",
-		Long:  "Add a detached signature to a .vpack bundle.\n\nThe signature covers the canonical manifest and the SHA-256 of the payload.\nSupported algorithms: ed25519 (default), ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096.\nThe algorithm is auto-detected from the key if --algo is not specified.",
+		Long:  "Add a detached signature to a .vpack bundle.\n\nThe signature covers the canonical manifest and the SHA-256 of the payload.\nSupported algorithms: ed25519 (default), ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096, ml-dsa-65, ml-dsa-87.\nThe algorithm is auto-detected from the key if --algo is not specified.",
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			printer := NewPrinter(flagJSON, flagQuiet)
 			defer func() {

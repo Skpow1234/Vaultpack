@@ -23,6 +23,8 @@ const (
 	HybridECIESP256       = "ecies-p256"
 	HybridRSAOAEP2048     = "rsa-oaep-2048"
 	HybridRSAOAEP4096     = "rsa-oaep-4096"
+	HybridMLKEM768        = "ml-kem-768"
+	HybridMLKEM1024       = "ml-kem-1024"
 )
 
 // SupportedHybridSchemes is the list of supported hybrid/asymmetric encryption scheme names.
@@ -31,6 +33,8 @@ var SupportedHybridSchemes = []string{
 	HybridECIESP256,
 	HybridRSAOAEP2048,
 	HybridRSAOAEP4096,
+	HybridMLKEM768,
+	HybridMLKEM1024,
 }
 
 // SupportedHybridScheme checks whether the given scheme name is supported.
@@ -71,6 +75,12 @@ func HybridEncapsulate(scheme string, recipientPubKeyPath string) (*HybridResult
 		return encapsulateECIESP256(pubKey)
 	case HybridRSAOAEP2048, HybridRSAOAEP4096:
 		return encapsulateRSAOAEP(pubKey, scheme)
+	case HybridMLKEM768, HybridMLKEM1024:
+		pq, ok := pubKey.(*MLKEMPublicKey)
+		if !ok {
+			return nil, fmt.Errorf("ml-kem: expected MLKEMPublicKey, got %T", pubKey)
+		}
+		return encapsulateMLKEM(pq)
 	default:
 		return nil, fmt.Errorf("unsupported hybrid scheme %q", scheme)
 	}
@@ -101,6 +111,12 @@ func HybridEncapsulateWithDEK(scheme string, recipientPubKeyPath string, dek []b
 		return wrapDEKECIESP256(pubKey, dek)
 	case HybridRSAOAEP2048, HybridRSAOAEP4096:
 		return wrapDEKRSAOAEP(pubKey, scheme, dek)
+	case HybridMLKEM768, HybridMLKEM1024:
+		pq, ok := pubKey.(*MLKEMPublicKey)
+		if !ok {
+			return nil, fmt.Errorf("ml-kem: expected MLKEMPublicKey, got %T", pubKey)
+		}
+		return wrapDEKMLKEM(pq, dek)
 	default:
 		return nil, fmt.Errorf("unsupported hybrid scheme %q", scheme)
 	}
@@ -125,6 +141,15 @@ func HybridDecapsulate(scheme string, privKeyPath string, ephemeralPubKey, wrapp
 		return decapsulateECIESP256(privKey, ephemeralPubKey)
 	case HybridRSAOAEP2048, HybridRSAOAEP4096:
 		return decapsulateRSAOAEP(privKey, wrappedDEK)
+	case HybridMLKEM768, HybridMLKEM1024:
+		pq, ok := privKey.(*MLKEMPrivateKey)
+		if !ok {
+			return nil, fmt.Errorf("ml-kem: expected MLKEMPrivateKey, got %T", privKey)
+		}
+		if len(wrappedDEK) == 0 {
+			return decapsulateMLKEM(pq, ephemeralPubKey)
+		}
+		return unwrapDEKMLKEM(pq, ephemeralPubKey, wrappedDEK)
 	default:
 		return nil, fmt.Errorf("unsupported hybrid scheme %q", scheme)
 	}
@@ -340,6 +365,9 @@ func GenerateHybridKeys(scheme string) (privPEM, pubPEM []byte, err error) {
 	case HybridRSAOAEP4096:
 		return generateRSAKeys(4096)
 
+	case HybridMLKEM768, HybridMLKEM1024:
+		return GenerateMLKEMKeys(scheme)
+
 	default:
 		return nil, nil, fmt.Errorf("unsupported hybrid scheme %q", scheme)
 	}
@@ -371,6 +399,8 @@ func DetectHybridScheme(pubKeyPath string) (string, error) {
 			return HybridRSAOAEP2048, nil
 		}
 		return HybridRSAOAEP4096, nil
+	case *MLKEMPublicKey:
+		return k.Scheme, nil
 	default:
 		return "", fmt.Errorf("unsupported key type for hybrid encryption: %T", pubKey)
 	}
@@ -401,20 +431,26 @@ func marshalECDHPublicKeyPEM(key *ecdh.PublicKey) ([]byte, error) {
 	}), nil
 }
 
-// parsePublicKeyPEM parses a PEM-encoded public key (supports ECDH, ECDSA, RSA).
+// parsePublicKeyPEM parses a PEM-encoded public key (supports ECDH, ECDSA, RSA, ML-KEM).
 func parsePublicKeyPEM(data []byte) (any, error) {
 	block, _ := pem.Decode(data)
 	if block == nil {
 		return nil, fmt.Errorf("no PEM block found")
 	}
+	if pq, _ := ParseMLKEMPublicKeyPEM(block); pq != nil {
+		return pq, nil
+	}
 	return x509.ParsePKIXPublicKey(block.Bytes)
 }
 
-// parsePrivateKeyPEM parses a PEM-encoded private key (supports ECDH, ECDSA, RSA).
+// parsePrivateKeyPEM parses a PEM-encoded private key (supports ECDH, ECDSA, RSA, ML-KEM).
 func parsePrivateKeyPEM(data []byte) (any, error) {
 	block, _ := pem.Decode(data)
 	if block == nil {
 		return nil, fmt.Errorf("no PEM block found")
+	}
+	if pq, _ := ParseMLKEMPrivateKeyPEM(block); pq != nil {
+		return pq, nil
 	}
 	return x509.ParsePKCS8PrivateKey(block.Bytes)
 }
@@ -576,6 +612,15 @@ func HybridDecapsulateWrappedDEK(scheme string, privKeyPath string, ephemeralPub
 		return unwrapDEKECIESP256(privKey, ephemeralPubKey, wrappedDEK)
 	case HybridRSAOAEP2048, HybridRSAOAEP4096:
 		return decapsulateRSAOAEP(privKey, wrappedDEK)
+	case HybridMLKEM768, HybridMLKEM1024:
+		pq, ok := privKey.(*MLKEMPrivateKey)
+		if !ok {
+			return nil, fmt.Errorf("ml-kem: expected MLKEMPrivateKey, got %T", privKey)
+		}
+		if len(wrappedDEK) == 0 {
+			return decapsulateMLKEM(pq, ephemeralPubKey)
+		}
+		return unwrapDEKMLKEM(pq, ephemeralPubKey, wrappedDEK)
 	default:
 		return nil, fmt.Errorf("unsupported hybrid scheme %q", scheme)
 	}
