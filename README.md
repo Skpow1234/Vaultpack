@@ -37,6 +37,12 @@ vaultpack keygen --out alice --algo x25519-aes-256-gcm
 vaultpack protect --in config.json --recipient alice.pub
 vaultpack decrypt --in config.json.vpack --out config.json --privkey alice.key
 
+# Post-quantum: ML-KEM for encryption, ML-DSA for signing
+vaultpack keygen --out pq --algo ml-kem-768
+vaultpack protect --in config.json --recipient pq.pub
+vaultpack keygen --out signpq --algo ml-dsa-65
+vaultpack sign --in config.json.vpack --signing-priv signpq.key
+
 # Encrypt for multiple recipients
 vaultpack protect --in config.json --recipient alice.pub --recipient bob.pub
 
@@ -53,9 +59,11 @@ vaultpack hash --in export.csv --algo blake3
 # Generate a signing key pair (default: Ed25519)
 vaultpack keygen --out signing
 
-# Generate ECDSA or RSA-PSS keys
+# Generate ECDSA, RSA-PSS, or post-quantum (ML-DSA / ML-KEM) keys
 vaultpack keygen --out mykey --algo ecdsa-p256
 vaultpack keygen --out mykey --algo rsa-pss-4096
+vaultpack keygen --out mykey --algo ml-dsa-65
+vaultpack keygen --out mykey --algo ml-kem-768
 
 # Protect + sign in one step (algo is auto-detected from the key)
 vaultpack protect --in config.json --sign --signing-priv signing.key
@@ -252,12 +260,16 @@ Supported algorithms:
 | `ecdsa-p384`          | Signing    | NIST P-384 curve                           |
 | `rsa-pss-2048`        | Signing    | RSA-PSS 2048-bit                           |
 | `rsa-pss-4096`        | Signing    | RSA-PSS 4096-bit                           |
+| `ml-dsa-65`           | Signing    | NIST FIPS 204 ML-DSA (post-quantum)        |
+| `ml-dsa-87`           | Signing    | NIST FIPS 204 ML-DSA (post-quantum)        |
 | `x25519-aes-256-gcm`  | Encryption | X25519 ECDH + HKDF + AES-256-GCM           |
 | `ecies-p256`          | Encryption | ECIES with P-256 ECDH + HKDF               |
 | `rsa-oaep-2048`       | Encryption | RSA-OAEP-SHA256 key wrapping (2048-bit)    |
 | `rsa-oaep-4096`       | Encryption | RSA-OAEP-SHA256 key wrapping (4096-bit)    |
+| `ml-kem-768`          | Encryption | NIST FIPS 203 ML-KEM (post-quantum)        |
+| `ml-kem-1024`         | Encryption | NIST FIPS 203 ML-KEM (post-quantum)        |
 
-Keys are saved in PEM format (PKCS#8 private, PKIX public).
+Keys are saved in PEM format (PKCS#8 private, PKIX public; ML-KEM and ML-DSA use custom PEM types).
 
 ### `sign` -- Sign a `.vpack` bundle
 
@@ -282,6 +294,8 @@ Supported signing algorithms:
 | `ecdsa-p384`      | ECDSA P-384    | ASN.1 DER        | Stronger NIST curve              |
 | `rsa-pss-2048`    | RSA 2048-bit   | RSA-PSS/SHA-256  | Modern RSA padding               |
 | `rsa-pss-4096`    | RSA 4096-bit   | RSA-PSS/SHA-256  | Higher security margin           |
+| `ml-dsa-65`       | ML-DSA-65      | FIPS 204         | Post-quantum (NIST)              |
+| `ml-dsa-87`       | ML-DSA-87      | FIPS 204         | Post-quantum (NIST)              |
 
 ### `verify` -- Verify a bundle signature
 
@@ -475,9 +489,9 @@ artifact.vpack
 
 - **AEAD encryption**: AES-256-GCM, ChaCha20-Poly1305, XChaCha20-Poly1305
 - **Hashing**: SHA-256, SHA-512, SHA3-256, SHA3-512, BLAKE2b-256, BLAKE2b-512, BLAKE3
-- **Signing**: Ed25519, ECDSA (P-256/P-384), RSA-PSS (2048/4096)
+- **Signing**: Ed25519, ECDSA (P-256/P-384), RSA-PSS (2048/4096), ML-DSA-65/87 (FIPS 204, post-quantum)
 - **KDFs**: Argon2id (t=3, m=64 MB, p=4), scrypt (N=32768, r=8, p=1), PBKDF2-SHA256 (600k iter)
-- **Hybrid encryption**: X25519+HKDF+AES-256-GCM, ECIES-P256, RSA-OAEP-SHA256
+- **Hybrid encryption**: X25519+HKDF+AES-256-GCM, ECIES-P256, RSA-OAEP-SHA256, ML-KEM-768/1024 (FIPS 203, post-quantum)
 
 ### Chunked Streaming Encryption
 
