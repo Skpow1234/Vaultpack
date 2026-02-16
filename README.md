@@ -461,6 +461,29 @@ vaultpack verify-seal --dir ./bundles/ --root $(cat root.txt)
 | `vaultpack verify-seal` | Verify directory against a previously sealed root      |
 | `vaultpack audit export` | Export audit log to CSV/JSON with filters             |
 
+### Configuration (config file and profiles)
+
+Optional config file and profiles let you set defaults for audit log, cipher, chunk size, output directory, and default recipients.
+
+**Config file search order:** `--config` or `VPACK_CONFIG` env, then `~/.vpack.yaml`, then `./.vpack.yaml` (first found).
+
+**Profile:** `--profile dev|staging|prod` or `VPACK_PROFILE` to apply profile-specific overrides from the config file.
+
+**Precedence (highest wins):** CLI flags > environment variables > config file (and profile) > built-in defaults.
+
+```bash
+# Show effective configuration
+vaultpack config
+vaultpack config --json
+
+# Use a config file and profile
+vaultpack --config ./vpack.yaml --profile prod protect --in data.csv
+export VPACK_CONFIG=~/.vpack.yaml VPACK_PROFILE=prod
+vaultpack protect --in data.csv
+```
+
+**Config file keys (YAML):** `audit_log`, `cipher`, `chunk_size`, `output_dir`, `default_key_path`, `default_pubkey_path`, `recipients`. Under `profiles.<name>` you can override any of these (e.g. `profiles.prod.audit_log`).
+
 ### Global Flags
 
 | Flag        | Description                  |
@@ -469,6 +492,8 @@ vaultpack verify-seal --dir ./bundles/ --root $(cat root.txt)
 | `--quiet`   | Minimal output (errors only) |
 | `--verbose` | Enable debug logging         |
 | `--audit-log` | Audit log file path        |
+| `--config`  | Config file path (or `VPACK_CONFIG` env) |
+| `--profile` | Config profile: dev, staging, prod (or `VPACK_PROFILE` env) |
 | `--version` | Print version                |
 
 ## Bundle Format

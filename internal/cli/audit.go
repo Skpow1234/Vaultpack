@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"os"
 	"sync"
 
 	"github.com/Skpow1234/Vaultpack/internal/audit"
@@ -12,13 +11,10 @@ var (
 	auditLoggerOnce sync.Once
 )
 
-// getAuditLogger returns the global audit logger (file or nop). Resolves path from flag or VAULTPACK_AUDIT_LOG.
+// getAuditLogger returns the global audit logger (file or nop). Uses effective path: CLI > env > config (set in PersistentPreRun).
 func getAuditLogger() audit.Logger {
 	auditLoggerOnce.Do(func() {
-		path := flagAuditLog
-		if path == "" {
-			path = os.Getenv("VAULTPACK_AUDIT_LOG")
-		}
+		path := effectiveAuditLogPath
 		if path == "" {
 			auditLogger = &audit.NopLogger{}
 			return

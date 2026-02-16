@@ -11,6 +11,7 @@ import (
 
 	"github.com/Skpow1234/Vaultpack/internal/audit"
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
+	"github.com/Skpow1234/Vaultpack/internal/config"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
 	"github.com/Skpow1234/Vaultpack/internal/util"
 	"github.com/spf13/cobra"
@@ -98,6 +99,16 @@ func newProtectCmd() *cobra.Command {
 				return fmt.Errorf("--password, --key, and --recipient are mutually exclusive")
 			}
 
+			// Apply config defaults when flags not set (precedence: CLI > env > config).
+			if c := config.Get(); c != nil {
+				if !cmd.Flags().Changed("cipher") && c.Cipher != "" {
+					cipherName = c.Cipher
+				}
+				if !cmd.Flags().Changed("recipient") && len(c.Recipients) > 0 {
+					recipients = append([]string(nil), c.Recipients...)
+				}
+			}
+
 			// Validate key splitting.
 			useSplit := splitShares > 0 || splitThreshold > 0
 			if useSplit {
@@ -175,12 +186,17 @@ func newProtectCmd() *cobra.Command {
 				inputSize = info.Size()
 			}
 
-			// Default output path.
+			// Default output path (optionally under config output_dir).
 			if outFile == "" && !useStdout {
 				if useStdin {
 					return fmt.Errorf("--out is required when using --stdin")
 				}
-				outFile = inFile + ".vpack"
+				baseName := filepath.Base(inFile) + ".vpack"
+				if c := config.Get(); c != nil && c.OutputDir != "" && c.OutputDir != "." {
+					outFile = filepath.Join(c.OutputDir, baseName)
+				} else {
+					outFile = inFile + ".vpack"
+				}
 			}
 
 			// If output is Azure, use a temp file as the local write target.
@@ -389,10 +405,16 @@ func newProtectCmd() *cobra.Command {
 				plaintextBuf.Write(compressed)
 			}
 
+			// Chunk size: config override or default.
+			chunkSize := crypto.DefaultChunkSize
+			if c := config.Get(); c != nil && c.ChunkSize > 0 {
+				chunkSize = c.ChunkSize
+			}
+
 			// Encrypt using chunked streaming.
 			var ciphertextBuf bytes.Buffer
 			streamResult, err := crypto.EncryptStream(
-				&plaintextBuf, &ciphertextBuf, key, aad, crypto.DefaultChunkSize, cipherName,
+				&plaintextBuf, &ciphertextBuf, key, aad, chunkSize, cipherName,
 			)
 			if err != nil {
 				return fmt.Errorf("encrypt: %w", err)
@@ -406,8 +428,6 @@ func newProtectCmd() *cobra.Command {
 				s := util.B64Encode(aad)
 				aadB64 = &s
 			}
-
-			chunkSize := crypto.DefaultChunkSize
 
 			// Build key splitting metadata (if requested).
 			var splitMeta *bundle.KeySplitMeta
