@@ -379,7 +379,7 @@ func newDecryptCmd() *cobra.Command {
 	cmd.Flags().StringVar(&password, "password", "", "decrypt with a password")
 	cmd.Flags().StringVar(&passwordFile, "password-file", "", "read password from file")
 	cmd.Flags().StringVar(&privKeyFile, "privkey", "", "private key for hybrid decryption (PEM)")
-	cmd.Flags().StringVar(&kmsProvider, "kms-provider", "", "KMS provider to unwrap DEK (when bundle has kms_key_id; e.g. aws, mock)")
+	cmd.Flags().StringVar(&kmsProvider, "kms-provider", "", "KMS provider to unwrap DEK (when bundle has kms_key_id: aws, gcp, azure, mock)")
 
 	return cmd
 }

@@ -740,8 +740,8 @@ func newProtectCmd() *cobra.Command {
 	cmd.Flags().StringVar(&compressAlgo, "compress", crypto.CompressNone, "pre-encryption compression: none, gzip, zstd")
 	cmd.Flags().IntVar(&splitShares, "split-shares", 0, "split the key into N Shamir shares (requires --split-threshold)")
 	cmd.Flags().IntVar(&splitThreshold, "split-threshold", 0, "minimum shares to reconstruct (K-of-N, requires --split-shares)")
-	cmd.Flags().StringVar(&kmsProvider, "kms-provider", "", "KMS provider for DEK wrap: aws, mock (or from config)")
-	cmd.Flags().StringVar(&kmsKeyID, "kms-key-id", "", "KMS key ID (e.g. alias/my-key for AWS, or mock-key-id for mock)")
+	cmd.Flags().StringVar(&kmsProvider, "kms-provider", "", "KMS provider for DEK wrap: aws, gcp, azure, mock (or from config)")
+	cmd.Flags().StringVar(&kmsKeyID, "kms-key-id", "", "KMS key ID (AWS alias/ARN; GCP full resource name; Azure key URL; mock-key-id for mock)")
 
 	return cmd
 }

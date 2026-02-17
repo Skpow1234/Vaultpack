@@ -66,22 +66,13 @@ func TestRegistry_GetMock(t *testing.T) {
 	}
 }
 
-func TestProviders_ContainsMockAndAWS(t *testing.T) {
+func TestProviders_ContainsAll(t *testing.T) {
 	names := Providers()
-	hasMock := false
-	hasAWS := false
+	want := map[string]bool{"mock": true, "aws": true, "gcp": true, "azure": true}
 	for _, n := range names {
-		if n == "mock" {
-			hasMock = true
-		}
-		if n == "aws" {
-			hasAWS = true
-		}
+		delete(want, n)
 	}
-	if !hasMock {
-		t.Error("Providers() should contain \"mock\"")
-	}
-	if !hasAWS {
-		t.Error("Providers() should contain \"aws\"")
+	for name := range want {
+		t.Errorf("Providers() should contain %q", name)
 	}
 }
