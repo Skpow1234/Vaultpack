@@ -14,6 +14,7 @@ import (
 	"github.com/Skpow1234/Vaultpack/internal/config"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
 	"github.com/Skpow1234/Vaultpack/internal/kms"
+	"github.com/Skpow1234/Vaultpack/internal/plugin"
 	"github.com/Skpow1234/Vaultpack/internal/util"
 	"github.com/spf13/cobra"
 )
@@ -284,27 +285,49 @@ func newProtectCmd() *cobra.Command {
 						return fmt.Errorf("detect hybrid scheme: %w", err)
 					}
 
-					result, err := crypto.HybridEncapsulate(scheme, recipient)
-					if err != nil {
-						return fmt.Errorf("hybrid encapsulate: %w", err)
-					}
-
-					key = result.DEK
-
-					recipientFP, err := crypto.RecipientKeyFingerprint(recipient)
-					if err != nil {
-						return fmt.Errorf("recipient fingerprint: %w", err)
-					}
-
-					hybridMeta = &bundle.HybridMeta{
-						Scheme:                  scheme,
-						RecipientFingerprintB64: recipientFP,
-					}
-					if len(result.EphemeralPublicKey) > 0 {
-						hybridMeta.EphemeralPubKeyB64 = util.B64Encode(result.EphemeralPublicKey)
-					}
-					if len(result.WrappedDEK) > 0 {
-						hybridMeta.WrappedDEKB64 = util.B64Encode(result.WrappedDEK)
+					if plugin.GlobalRegistry().KEMScheme(scheme) != "" {
+						pres, err := plugin.GlobalRegistry().Encapsulate(scheme, recipient, nil)
+						if err != nil {
+							return fmt.Errorf("hybrid encapsulate: %w", err)
+						}
+						key, err = util.B64Decode(pres.DEKB64)
+						if err != nil {
+							return fmt.Errorf("plugin encapsulate DEK: %w", err)
+						}
+						recipientFP, err := crypto.RecipientKeyFingerprint(recipient)
+						if err != nil {
+							return fmt.Errorf("recipient fingerprint: %w", err)
+						}
+						hybridMeta = &bundle.HybridMeta{
+							Scheme:                  scheme,
+							RecipientFingerprintB64: recipientFP,
+						}
+						if pres.EphemeralB64 != "" {
+							hybridMeta.EphemeralPubKeyB64 = pres.EphemeralB64
+						}
+						if pres.WrappedDEKB64 != "" {
+							hybridMeta.WrappedDEKB64 = pres.WrappedDEKB64
+						}
+					} else {
+						result, err := crypto.HybridEncapsulate(scheme, recipient)
+						if err != nil {
+							return fmt.Errorf("hybrid encapsulate: %w", err)
+						}
+						key = result.DEK
+						recipientFP, err := crypto.RecipientKeyFingerprint(recipient)
+						if err != nil {
+							return fmt.Errorf("recipient fingerprint: %w", err)
+						}
+						hybridMeta = &bundle.HybridMeta{
+							Scheme:                  scheme,
+							RecipientFingerprintB64: recipientFP,
+						}
+						if len(result.EphemeralPublicKey) > 0 {
+							hybridMeta.EphemeralPubKeyB64 = util.B64Encode(result.EphemeralPublicKey)
+						}
+						if len(result.WrappedDEK) > 0 {
+							hybridMeta.WrappedDEKB64 = util.B64Encode(result.WrappedDEK)
+						}
 					}
 				} else {
 					// Multi-recipient: generate one random DEK, wrap for each recipient.
@@ -320,27 +343,47 @@ func newProtectCmd() *cobra.Command {
 							return fmt.Errorf("detect hybrid scheme for %s: %w", rp, err)
 						}
 
-						result, err := crypto.HybridEncapsulateWithDEK(scheme, rp, key)
-						if err != nil {
-							return fmt.Errorf("wrap DEK for %s: %w", rp, err)
+						if plugin.GlobalRegistry().KEMScheme(scheme) != "" {
+							pres, err := plugin.GlobalRegistry().Encapsulate(scheme, rp, key)
+							if err != nil {
+								return fmt.Errorf("wrap DEK for %s: %w", rp, err)
+							}
+							fp, err := crypto.RecipientKeyFingerprint(rp)
+							if err != nil {
+								return fmt.Errorf("recipient fingerprint %s: %w", rp, err)
+							}
+							entry := bundle.RecipientEntry{
+								Scheme:         scheme,
+								FingerprintB64: fp,
+							}
+							if pres.EphemeralB64 != "" {
+								entry.EphemeralPubKeyB64 = pres.EphemeralB64
+							}
+							if pres.WrappedDEKB64 != "" {
+								entry.WrappedDEKB64 = pres.WrappedDEKB64
+							}
+							recipientEntries = append(recipientEntries, entry)
+						} else {
+							result, err := crypto.HybridEncapsulateWithDEK(scheme, rp, key)
+							if err != nil {
+								return fmt.Errorf("wrap DEK for %s: %w", rp, err)
+							}
+							fp, err := crypto.RecipientKeyFingerprint(rp)
+							if err != nil {
+								return fmt.Errorf("recipient fingerprint %s: %w", rp, err)
+							}
+							entry := bundle.RecipientEntry{
+								Scheme:         scheme,
+								FingerprintB64: fp,
+							}
+							if len(result.EphemeralPublicKey) > 0 {
+								entry.EphemeralPubKeyB64 = util.B64Encode(result.EphemeralPublicKey)
+							}
+							if len(result.WrappedDEK) > 0 {
+								entry.WrappedDEKB64 = util.B64Encode(result.WrappedDEK)
+							}
+							recipientEntries = append(recipientEntries, entry)
 						}
-
-						fp, err := crypto.RecipientKeyFingerprint(rp)
-						if err != nil {
-							return fmt.Errorf("recipient fingerprint %s: %w", rp, err)
-						}
-
-						entry := bundle.RecipientEntry{
-							Scheme:         scheme,
-							FingerprintB64: fp,
-						}
-						if len(result.EphemeralPublicKey) > 0 {
-							entry.EphemeralPubKeyB64 = util.B64Encode(result.EphemeralPublicKey)
-						}
-						if len(result.WrappedDEK) > 0 {
-							entry.WrappedDEKB64 = util.B64Encode(result.WrappedDEK)
-						}
-						recipientEntries = append(recipientEntries, entry)
 					}
 
 					hybridMeta = &bundle.HybridMeta{

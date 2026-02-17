@@ -8,6 +8,7 @@ import (
 	"github.com/Skpow1234/Vaultpack/internal/audit"
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
+	"github.com/Skpow1234/Vaultpack/internal/plugin"
 	"github.com/Skpow1234/Vaultpack/internal/util"
 	"github.com/spf13/cobra"
 )
@@ -52,16 +53,17 @@ func newVerifyCmd() *cobra.Command {
 				return nil
 			}
 
-			// Load public key (auto-detects algorithm).
-			pub, keyAlgo, err := crypto.LoadAnyPublicKey(pubKey)
-			if err != nil {
-				return fmt.Errorf("load public key: %w", err)
-			}
-
-			// Determine signing algorithm: prefer manifest field, fall back to key type.
-			signAlgo := keyAlgo
+			// Determine signing algorithm: prefer manifest field, then load key to detect.
+			signAlgo := ""
 			if br.Manifest.SignatureAlgo != nil && *br.Manifest.SignatureAlgo != "" {
 				signAlgo = *br.Manifest.SignatureAlgo
+			}
+			if signAlgo == "" {
+				_, keyAlgo, err := crypto.LoadAnyPublicKey(pubKey)
+				if err != nil {
+					return fmt.Errorf("load public key: %w", err)
+				}
+				signAlgo = keyAlgo
 			}
 
 			// Rebuild the signing message from the bundle contents.
@@ -77,7 +79,16 @@ func newVerifyCmd() *cobra.Command {
 
 			sigMsg := crypto.BuildSigningMessage(canonical, payloadHash)
 
-			valid, err := crypto.VerifySignature(pub, signAlgo, sigMsg, br.Signature)
+			var valid bool
+			if plugin.GlobalRegistry().SignAlgo(signAlgo) != "" {
+				valid, err = plugin.GlobalRegistry().Verify(signAlgo, pubKey, sigMsg, br.Signature)
+			} else {
+				pub, _, err := crypto.LoadAnyPublicKey(pubKey)
+				if err != nil {
+					return fmt.Errorf("load public key: %w", err)
+				}
+				valid, err = crypto.VerifySignature(pub, signAlgo, sigMsg, br.Signature)
+			}
 			if err != nil {
 				return fmt.Errorf("verify: %w", err)
 			}

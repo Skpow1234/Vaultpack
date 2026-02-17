@@ -9,6 +9,7 @@ import (
 	"github.com/Skpow1234/Vaultpack/internal/audit"
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
+	"github.com/Skpow1234/Vaultpack/internal/plugin"
 	"github.com/Skpow1234/Vaultpack/internal/util"
 	"github.com/spf13/cobra"
 )
@@ -99,7 +100,11 @@ Requires one of --key, --password, or --privkey.`,
 						if re.WrappedDEKB64 != "" {
 							wrappedDEK, _ = util.B64Decode(re.WrappedDEKB64)
 						}
-						key, err = crypto.HybridDecapsulateWrappedDEK(re.Scheme, privKeyFile, ephPub, wrappedDEK)
+						if plugin.GlobalRegistry().KEMScheme(re.Scheme) != "" {
+							key, err = plugin.GlobalRegistry().Decapsulate(re.Scheme, privKeyFile, re.EphemeralPubKeyB64, re.WrappedDEKB64)
+						} else {
+							key, err = crypto.HybridDecapsulateWrappedDEK(re.Scheme, privKeyFile, ephPub, wrappedDEK)
+						}
 						if err == nil {
 							break
 						}
@@ -118,7 +123,11 @@ Requires one of --key, --password, or --privkey.`,
 					if h.WrappedDEKB64 != "" {
 						wrappedDEK, _ = util.B64Decode(h.WrappedDEKB64)
 					}
-					key, err = crypto.HybridDecapsulate(h.Scheme, privKeyFile, ephPub, wrappedDEK)
+					if plugin.GlobalRegistry().KEMScheme(h.Scheme) != "" {
+						key, err = plugin.GlobalRegistry().Decapsulate(h.Scheme, privKeyFile, h.EphemeralPubKeyB64, h.WrappedDEKB64)
+					} else {
+						key, err = crypto.HybridDecapsulate(h.Scheme, privKeyFile, ephPub, wrappedDEK)
+					}
 					if err != nil {
 						auditLog(audit.OpVerifyIntegrity, inFile, "", "", "", false, "hybrid decapsulation failed")
 						printer.Error(util.ErrDecryptFailed, fmt.Sprintf("hybrid decapsulation failed: %v", err))

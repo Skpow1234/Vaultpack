@@ -8,6 +8,7 @@ import (
 	"github.com/Skpow1234/Vaultpack/internal/audit"
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
+	"github.com/Skpow1234/Vaultpack/internal/plugin"
 	"github.com/Skpow1234/Vaultpack/internal/util"
 	"github.com/spf13/cobra"
 )
@@ -46,41 +47,62 @@ func newSignCmd() *cobra.Command {
 				return fmt.Errorf("read bundle: %w", err)
 			}
 
-			// Load signing key (auto-detects algorithm from key format).
-			privKey, detectedAlgo, err := crypto.LoadPrivateKey(signingPriv)
-			if err != nil {
-				return fmt.Errorf("load signing key: %w", err)
-			}
+			var signAlgo string
+			var sig []byte
 
-			// If --algo was explicitly set, validate it matches the key.
-			signAlgo := detectedAlgo
-			if cmd.Flags().Changed("algo") {
-				if algo != detectedAlgo {
-					return fmt.Errorf("--algo %q does not match key type %q from %s", algo, detectedAlgo, signingPriv)
-				}
+			// Plugin sign: require --algo and use plugin binary.
+			if cmd.Flags().Changed("algo") && plugin.GlobalRegistry().SignAlgo(algo) != "" {
 				signAlgo = algo
+				br.Manifest.SignatureAlgo = &signAlgo
+				ts := time.Now().UTC().Format(time.RFC3339)
+				br.Manifest.SignedAt = &ts
+				canonical, err := bundle.CanonicalManifest(br.Manifest)
+				if err != nil {
+					return fmt.Errorf("canonicalize manifest: %w", err)
+				}
+				payloadHash, err := crypto.HashReader(bytes.NewReader(br.Ciphertext), "sha256")
+				if err != nil {
+					return fmt.Errorf("hash payload: %w", err)
+				}
+				sigMsg := crypto.BuildSigningMessage(canonical, payloadHash)
+				sig, err = plugin.GlobalRegistry().Sign(signAlgo, signingPriv, sigMsg)
+				if err != nil {
+					return fmt.Errorf("sign: %w", err)
+				}
+			} else {
+				// Load signing key (auto-detects algorithm from key format).
+				privKey, detectedAlgo, err := crypto.LoadPrivateKey(signingPriv)
+				if err != nil {
+					return fmt.Errorf("load signing key: %w", err)
+				}
+				signAlgo = detectedAlgo
+				if cmd.Flags().Changed("algo") {
+					if algo != detectedAlgo {
+						return fmt.Errorf("--algo %q does not match key type %q from %s", algo, detectedAlgo, signingPriv)
+					}
+					signAlgo = algo
+				}
+				br.Manifest.SignatureAlgo = &signAlgo
+				ts := time.Now().UTC().Format(time.RFC3339)
+				br.Manifest.SignedAt = &ts
+				canonical, err := bundle.CanonicalManifest(br.Manifest)
+				if err != nil {
+					return fmt.Errorf("canonicalize manifest: %w", err)
+				}
+				payloadHash, err := crypto.HashReader(bytes.NewReader(br.Ciphertext), "sha256")
+				if err != nil {
+					return fmt.Errorf("hash payload: %w", err)
+				}
+				sigMsg := crypto.BuildSigningMessage(canonical, payloadHash)
+				sig, err = crypto.SignMessage(privKey, signAlgo, sigMsg)
+				if err != nil {
+					return fmt.Errorf("sign: %w", err)
+				}
 			}
 
-			// Store signing algo and timestamp in manifest BEFORE computing canonical form.
-			br.Manifest.SignatureAlgo = &signAlgo
-			ts := time.Now().UTC().Format(time.RFC3339)
-			br.Manifest.SignedAt = &ts
-
-			// Build the signing message: canonical manifest + SHA-256(payload).
-			canonical, err := bundle.CanonicalManifest(br.Manifest)
-			if err != nil {
-				return fmt.Errorf("canonicalize manifest: %w", err)
-			}
-
-			payloadHash, err := crypto.HashReader(bytes.NewReader(br.Ciphertext), "sha256")
-			if err != nil {
-				return fmt.Errorf("hash payload: %w", err)
-			}
-
-			sigMsg := crypto.BuildSigningMessage(canonical, payloadHash)
-			sig, err := crypto.SignMessage(privKey, signAlgo, sigMsg)
-			if err != nil {
-				return fmt.Errorf("sign: %w", err)
+			ts := ""
+			if br.Manifest.SignedAt != nil {
+				ts = *br.Manifest.SignedAt
 			}
 
 			// Re-write the bundle with the signature and updated manifest.
@@ -111,7 +133,9 @@ func newSignCmd() *cobra.Command {
 			default:
 				printer.Human("Signed:    %s", inFile)
 				printer.Human("Algo:      %s", signAlgo)
-				printer.Human("Timestamp: %s", ts)
+				if ts != "" {
+					printer.Human("Timestamp: %s", ts)
+				}
 			}
 			return nil
 		},

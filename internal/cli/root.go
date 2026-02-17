@@ -5,6 +5,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/Skpow1234/Vaultpack/internal/config"
+	"github.com/Skpow1234/Vaultpack/internal/plugin"
 	"github.com/spf13/cobra"
 )
 
@@ -54,6 +55,12 @@ func NewRootCmd() *cobra.Command {
 			if flagQuiet {
 				zerolog.SetGlobalLevel(zerolog.ErrorLevel)
 			}
+			// Plugin discovery: VPACK_PLUGIN_DIR or config plugin_dir.
+			pluginDir := os.Getenv(config.EnvPluginDir)
+			if pluginDir == "" && config.Get() != nil {
+				pluginDir = config.Get().PluginDir
+			}
+			plugin.DiscoverFromDir(pluginDir)
 		},
 		SilenceUsage:  true,
 		SilenceErrors: true,

@@ -15,6 +15,8 @@ const (
 	EnvConfigPath = "VPACK_CONFIG"
 	// EnvProfile is the environment variable for profile name.
 	EnvProfile = "VPACK_PROFILE"
+	// EnvPluginDir is the environment variable for plugin discovery directory.
+	EnvPluginDir = "VPACK_PLUGIN_DIR"
 )
 
 // EffectiveConfig holds the merged configuration (defaults + config file + profile).
@@ -28,6 +30,7 @@ type EffectiveConfig struct {
 	Recipients      []string `mapstructure:"recipients" json:"recipients,omitempty"`
 	KmsProvider     string   `mapstructure:"kms_provider" json:"kms_provider,omitempty"`
 	KmsKeyID        string   `mapstructure:"kms_key_id" json:"kms_key_id,omitempty"`
+	PluginDir       string   `mapstructure:"plugin_dir" json:"plugin_dir,omitempty"`
 }
 
 // Profile holds profile-specific overrides.
@@ -41,6 +44,7 @@ type Profile struct {
 	Recipients     []string `mapstructure:"recipients"`
 	KmsProvider    string   `mapstructure:"kms_provider"`
 	KmsKeyID       string   `mapstructure:"kms_key_id"`
+	PluginDir      string   `mapstructure:"plugin_dir"`
 }
 
 // ConfigFile represents the root config file structure (optional base + profiles).
@@ -158,6 +162,9 @@ func readAndMerge(path, profile string, base *EffectiveConfig) error {
 	if v.IsSet("kms_key_id") {
 		base.KmsKeyID = v.GetString("kms_key_id")
 	}
+	if v.IsSet("plugin_dir") {
+		base.PluginDir = v.GetString("plugin_dir")
+	}
 
 	// Apply profile overrides.
 	if profile != "" && v.IsSet("profiles") {
@@ -194,6 +201,9 @@ func readAndMerge(path, profile string, base *EffectiveConfig) error {
 			}
 			if v, ok := p["kms_key_id"].(string); ok && v != "" {
 				base.KmsKeyID = v
+			}
+			if v, ok := p["plugin_dir"].(string); ok && v != "" {
+				base.PluginDir = v
 			}
 		}
 	}

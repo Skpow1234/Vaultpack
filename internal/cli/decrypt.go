@@ -12,6 +12,7 @@ import (
 	"github.com/Skpow1234/Vaultpack/internal/config"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
 	"github.com/Skpow1234/Vaultpack/internal/kms"
+	"github.com/Skpow1234/Vaultpack/internal/plugin"
 	"github.com/Skpow1234/Vaultpack/internal/util"
 	"github.com/spf13/cobra"
 )
@@ -164,7 +165,11 @@ func newDecryptCmd() *cobra.Command {
 								continue
 							}
 						}
-						key, decapErr = crypto.HybridDecapsulateWrappedDEK(re.Scheme, privKeyFile, ephPub, wrappedDEK)
+						if plugin.GlobalRegistry().KEMScheme(re.Scheme) != "" {
+							key, decapErr = plugin.GlobalRegistry().Decapsulate(re.Scheme, privKeyFile, re.EphemeralPubKeyB64, re.WrappedDEKB64)
+						} else {
+							key, decapErr = crypto.HybridDecapsulateWrappedDEK(re.Scheme, privKeyFile, ephPub, wrappedDEK)
+						}
 						if decapErr == nil {
 							break
 						}
@@ -193,7 +198,11 @@ func newDecryptCmd() *cobra.Command {
 							return fmt.Errorf("decode wrapped DEK: %w", err)
 						}
 					}
-					key, err = crypto.HybridDecapsulate(h.Scheme, privKeyFile, ephPub, wrappedDEK)
+					if plugin.GlobalRegistry().KEMScheme(h.Scheme) != "" {
+						key, err = plugin.GlobalRegistry().Decapsulate(h.Scheme, privKeyFile, h.EphemeralPubKeyB64, h.WrappedDEKB64)
+					} else {
+						key, err = crypto.HybridDecapsulate(h.Scheme, privKeyFile, ephPub, wrappedDEK)
+					}
 					if err != nil {
 						printer.Error(util.ErrDecryptFailed, fmt.Sprintf("hybrid decapsulation failed: %v", err))
 						os.Exit(util.ExitDecryptFailed)

@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"os"
+	"strings"
 
 	"golang.org/x/crypto/hkdf"
 
@@ -373,11 +374,25 @@ func GenerateHybridKeys(scheme string) (privPEM, pubPEM []byte, err error) {
 	}
 }
 
+// PluginSchemePrefix is the first-line prefix in plugin-generated public key files.
+// Example: "VPACK-KEM-SCHEME: my-dummy-kem"
+const PluginSchemePrefix = "VPACK-KEM-SCHEME:"
+
 // DetectHybridScheme detects the hybrid scheme from a recipient public key file.
+// Plugin keys may start with a line "VPACK-KEM-SCHEME: <name>"; that name is returned without parsing PEM.
 func DetectHybridScheme(pubKeyPath string) (string, error) {
 	data, err := os.ReadFile(pubKeyPath)
 	if err != nil {
 		return "", fmt.Errorf("read public key: %w", err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, PluginSchemePrefix) {
+			scheme := strings.TrimSpace(strings.TrimPrefix(line, PluginSchemePrefix))
+			if scheme != "" {
+				return scheme, nil
+			}
+		}
 	}
 
 	pubKey, err := parsePublicKeyPEM(data)

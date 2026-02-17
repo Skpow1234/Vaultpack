@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
+	"github.com/Skpow1234/Vaultpack/internal/plugin"
 	"github.com/spf13/cobra"
 )
 
@@ -34,29 +35,49 @@ func newKeygenCmd() *cobra.Command {
 			}
 			pubPath := strings.TrimSuffix(privPath, ".key") + ".pub"
 
-			var privPEM, pubPEM []byte
 			var err error
 			var purpose string
+			reg := plugin.GlobalRegistry()
 
-			// Check if it's a signing algorithm or hybrid scheme.
+			// Built-in or plugin: signing first, then hybrid (KEM).
 			if crypto.SupportedSignAlgo(algo) {
-				privPEM, pubPEM, err = crypto.GenerateSigningKeys(algo)
+				privPEM, pubPEM, err := crypto.GenerateSigningKeys(algo)
+				if err != nil {
+					return fmt.Errorf("generate key pair: %w", err)
+				}
 				purpose = "signing"
+				if err := crypto.SaveKeyPEM(privPath, privPEM, 0o600); err != nil {
+					return fmt.Errorf("save private key: %w", err)
+				}
+				if err := crypto.SaveKeyPEM(pubPath, pubPEM, 0o644); err != nil {
+					return fmt.Errorf("save public key: %w", err)
+				}
+			} else if reg.SignAlgo(algo) != "" {
+				err = reg.KeygenSign(algo, outPrefix)
+				purpose = "signing"
+				if err != nil {
+					return fmt.Errorf("generate key pair: %w", err)
+				}
 			} else if crypto.SupportedHybridScheme(algo) {
-				privPEM, pubPEM, err = crypto.GenerateHybridKeys(algo)
+				privPEM, pubPEM, err := crypto.GenerateHybridKeys(algo)
+				if err != nil {
+					return fmt.Errorf("generate key pair: %w", err)
+				}
 				purpose = "encryption"
+				if err := crypto.SaveKeyPEM(privPath, privPEM, 0o600); err != nil {
+					return fmt.Errorf("save private key: %w", err)
+				}
+				if err := crypto.SaveKeyPEM(pubPath, pubPEM, 0o644); err != nil {
+					return fmt.Errorf("save public key: %w", err)
+				}
+			} else if reg.KEMScheme(algo) != "" {
+				err = reg.KeygenKEM(algo, outPrefix)
+				purpose = "encryption"
+				if err != nil {
+					return fmt.Errorf("generate key pair: %w", err)
+				}
 			} else {
-				return fmt.Errorf("unsupported algorithm %q; signing: ed25519, ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096, ml-dsa-65, ml-dsa-87; encryption: x25519, ecies-p256, rsa-oaep-2048, rsa-oaep-4096, ml-kem-768, ml-kem-1024", algo)
-			}
-			if err != nil {
-				return fmt.Errorf("generate key pair: %w", err)
-			}
-
-			if err := crypto.SaveKeyPEM(privPath, privPEM, 0o600); err != nil {
-				return fmt.Errorf("save private key: %w", err)
-			}
-			if err := crypto.SaveKeyPEM(pubPath, pubPEM, 0o644); err != nil {
-				return fmt.Errorf("save public key: %w", err)
+				return fmt.Errorf("unsupported algorithm %q; signing: ed25519, ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096, ml-dsa-65, ml-dsa-87; encryption: x25519, ecies-p256, rsa-oaep-2048, rsa-oaep-4096, ml-kem-768, ml-kem-1024 (or plugin schemes)", algo)
 			}
 
 			switch printer.Mode {
