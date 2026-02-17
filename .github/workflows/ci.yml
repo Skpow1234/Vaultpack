@@ -36,6 +36,10 @@ jobs:
       - name: Run vet
         run: go vet ./...
 
+      - name: Benchmarks (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        run: go test ./internal/crypto ./internal/bundle -run=^$ -bench=. -benchmem -count=1
+
   security:
     name: Security (govulncheck)
     runs-on: ubuntu-latest
