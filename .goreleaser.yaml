@@ -1,0 +1,84 @@
+# Official distribution: multi-OS binaries, checksums, SBOM, release notes.
+# Version from Git tag (e.g. v1.0.0). Run: goreleaser release
+# Snapshot (no tag): goreleaser release --snapshot
+
+version: 2
+
+project_name: vaultpack
+
+builds:
+  - id: vaultpack
+    main: ./cmd/vaultpack
+    binary: vaultpack
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/Skpow1234/Vaultpack/internal/cli.Version={{.Version}}
+
+archives:
+  - id: default
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+    name_template: "{{ .Binary }}-{{ .Os }}-{{ .Arch }}{{ .Ext }}"
+    builds:
+      - vaultpack
+
+checksum:
+  name_template: "checksums-sha256.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^ci:"
+
+release:
+  github:
+    owner: Skpow1234
+    name: Vaultpack
+  name_template: "{{.Tag}}"
+  draft: false
+
+# SBOM for each archive (requires syft in PATH when releasing)
+sboms:
+  - id: default
+    artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.sbom.json"
+    cmd: syft
+    args:
+      - "$artifact"
+      - "--output"
+      - "cyclonedx-json=$document"
+    env:
+      - SYFT_FILE_METADATA_CATALOGER_ENABLED=true
+    disable: false
+
+# Optional: uncomment and set repo when adding a Homebrew tap
+# brews:
+#   - repository:
+#       owner: Skpow1234
+#       name: homebrew-tap
+#     homepage: https://github.com/Skpow1234/Vaultpack
+#     description: "Encrypt, hash, and sign data into .vpack bundles"
+
+# Optional: uncomment for Chocolatey (Windows)
+# chocolatelys:
+#   - repository:
+#       owner: Skpow1234
+#       name: chocolatey-packages

@@ -1,3 +1,6 @@
+# Multi-arch (amd64, arm64): build with
+#   docker buildx build --platform linux/amd64,linux/arm64 -t vaultpack:tag --push .
+# Or: make docker-buildx
 # ---- Build stage ----
 FROM golang:1.24-alpine AS builder
 

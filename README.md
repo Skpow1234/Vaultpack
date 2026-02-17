@@ -119,24 +119,47 @@ vaultpack decrypt --in config.vpack --key config.key --stdout > config.json
 
 ## Install
 
-### Pre-built binaries (recommended)
+Pre-built binaries are published for **Linux** (amd64, arm64), **macOS** (amd64, arm64), and **Windows** (amd64, arm64) on [**Releases**](https://github.com/Skpow1234/Vaultpack/releases). Each release includes checksums and SBOMs for supply-chain verification.
 
-Download the latest release for your platform from
-[**Releases**](https://github.com/Skpow1234/Vaultpack/releases):
+### One-command install (curl)
+
+Replace `VERSION` with a tag (e.g. `v1.0.0`) or use `latest` for the latest release.
 
 ```bash
 # Linux (amd64)
-curl -LO https://github.com/Skpow1234/Vaultpack/releases/latest/download/vaultpack-linux-amd64
-chmod +x vaultpack-linux-amd64
-sudo mv vaultpack-linux-amd64 /usr/local/bin/vaultpack
+curl -sL https://github.com/Skpow1234/Vaultpack/releases/latest/download/vaultpack-linux-amd64.tar.gz | tar xz
+sudo mv vaultpack /usr/local/bin/
+
+# Linux (arm64)
+curl -sL https://github.com/Skpow1234/Vaultpack/releases/latest/download/vaultpack-linux-arm64.tar.gz | tar xz
+sudo mv vaultpack /usr/local/bin/
 
 # macOS (Apple Silicon)
-curl -LO https://github.com/Skpow1234/Vaultpack/releases/latest/download/vaultpack-darwin-arm64
-chmod +x vaultpack-darwin-arm64
-sudo mv vaultpack-darwin-arm64 /usr/local/bin/vaultpack
+curl -sL https://github.com/Skpow1234/Vaultpack/releases/latest/download/vaultpack-darwin-arm64.tar.gz | tar xz
+sudo mv vaultpack /usr/local/bin/
+
+# macOS (Intel)
+curl -sL https://github.com/Skpow1234/Vaultpack/releases/latest/download/vaultpack-darwin-amd64.tar.gz | tar xz
+sudo mv vaultpack /usr/local/bin/
 ```
 
-Every release includes `checksums-sha256.txt` -- verify before installing.
+**Windows:** download `vaultpack-windows-amd64.zip` or `vaultpack-windows-arm64.zip` from Releases, extract, and add the folder to your `PATH`.
+
+### Verify checksums
+
+Before installing, verify the archive with the published SHA-256 checksums:
+
+```bash
+curl -sLO https://github.com/Skpow1234/Vaultpack/releases/latest/download/checksums-sha256.txt
+curl -sLO https://github.com/Skpow1234/Vaultpack/releases/latest/download/vaultpack-linux-amd64.tar.gz
+sha256sum -c checksums-sha256.txt --ignore-missing
+```
+
+On macOS use `shasum -a 256 -c checksums-sha256.txt --ignore-missing`.
+
+### Upgrade
+
+To upgrade, download the new version for your platform from [Releases](https://github.com/Skpow1234/Vaultpack/releases), verify the checksum, then replace the existing binary (or re-run the one-command install and overwrite `/usr/local/bin/vaultpack`). With `go install`, run `go install github.com/Skpow1234/Vaultpack/cmd/vaultpack@latest` again.
 
 ### With `go install`
 
@@ -156,10 +179,24 @@ go build -o bin/vaultpack ./cmd/vaultpack
 
 ### Docker
 
+Images are built for **linux/amd64** and **linux/arm64**. Use the published image or build locally:
+
 ```bash
+# Run from registry (when published)
+docker run --rm -v "$PWD:/work" ghcr.io/Skpow1234/vaultpack:latest protect --in /work/config.json
+
+# Build locally (single arch)
 docker build -t vaultpack .
 docker run --rm -v "$PWD:/work" vaultpack protect --in /work/config.json
 ```
+
+Multi-arch build: `make docker-buildx` or `docker buildx build --platform linux/amd64,linux/arm64 -t vaultpack:tag .`
+
+### Security considerations
+
+- **Checksums:** Always verify `checksums-sha256.txt` against the downloaded archive before installing.
+- **SBOM:** Releases include CycloneDX SBOMs (e.g. `vaultpack-linux-amd64.tar.gz.sbom.json`) for dependency and supply-chain review.
+- **Optional:** Binaries and container images can be signed/attested (e.g. cosign, SLSA) in your pipeline; see the repo CI and release workflow.
 
 ## Usage
 
