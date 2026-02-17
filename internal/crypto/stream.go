@@ -10,10 +10,20 @@ import (
 
 const (
 	// DefaultChunkSize is the default plaintext chunk size for streaming encryption (64 KB).
+	// Good balance for small and large files; configurable via config chunk_size.
 	DefaultChunkSize = 64 * 1024
+	// MaxChunkSizeRecommended is the recommended maximum chunk size (1 MiB).
+	// Larger chunks use more memory per chunk; there is no hard limit (chunk index is uint64).
+	MaxChunkSizeRecommended = 1024 * 1024
 	// lastChunkFlag is set on bit 63 of the counter for the final chunk to prevent truncation.
 	lastChunkFlag = uint64(1) << 63
 )
+
+// Streaming and memory: EncryptStream and DecryptStream process one chunk at a time and use
+// O(chunkSize) memory (one plaintext chunk buffer, one ciphertext chunk buffer). The full file
+// is never loaded inside these functions. The CLI may buffer full plaintext for hashing and
+// optional compression before calling EncryptStream. There is no artificial file size limit;
+// the chunk counter is uint64 (last-chunk flag uses bit 63).
 
 // StreamEncryptResult holds metadata from a streaming encryption operation.
 type StreamEncryptResult struct {

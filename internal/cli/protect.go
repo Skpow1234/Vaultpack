@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Skpow1234/Vaultpack/internal/audit"
@@ -336,54 +337,84 @@ func newProtectCmd() *cobra.Command {
 						return fmt.Errorf("generate DEK: %w", err)
 					}
 
-					var recipientEntries []bundle.RecipientEntry
-					for _, rp := range recipients {
-						scheme, err := crypto.DetectHybridScheme(rp)
-						if err != nil {
-							return fmt.Errorf("detect hybrid scheme for %s: %w", rp, err)
-						}
-
-						if plugin.GlobalRegistry().KEMScheme(scheme) != "" {
-							pres, err := plugin.GlobalRegistry().Encapsulate(scheme, rp, key)
+					// Parallel wrap DEK for each recipient.
+					recipientEntries := make([]bundle.RecipientEntry, len(recipients))
+					var wg sync.WaitGroup
+					var firstErr error
+					var errMu sync.Mutex
+					for i, rp := range recipients {
+						wg.Add(1)
+						go func(i int, rp string) {
+							defer wg.Done()
+							scheme, err := crypto.DetectHybridScheme(rp)
 							if err != nil {
-								return fmt.Errorf("wrap DEK for %s: %w", rp, err)
+								errMu.Lock()
+								if firstErr == nil {
+									firstErr = fmt.Errorf("detect hybrid scheme for %s: %w", rp, err)
+								}
+								errMu.Unlock()
+								return
 							}
-							fp, err := crypto.RecipientKeyFingerprint(rp)
-							if err != nil {
-								return fmt.Errorf("recipient fingerprint %s: %w", rp, err)
+							var entry bundle.RecipientEntry
+							if plugin.GlobalRegistry().KEMScheme(scheme) != "" {
+								pres, err := plugin.GlobalRegistry().Encapsulate(scheme, rp, key)
+								if err != nil {
+									errMu.Lock()
+									if firstErr == nil {
+										firstErr = fmt.Errorf("wrap DEK for %s: %w", rp, err)
+									}
+									errMu.Unlock()
+									return
+								}
+								fp, err := crypto.RecipientKeyFingerprint(rp)
+								if err != nil {
+									errMu.Lock()
+									if firstErr == nil {
+										firstErr = fmt.Errorf("recipient fingerprint %s: %w", rp, err)
+									}
+									errMu.Unlock()
+									return
+								}
+								entry = bundle.RecipientEntry{Scheme: scheme, FingerprintB64: fp}
+								if pres.EphemeralB64 != "" {
+									entry.EphemeralPubKeyB64 = pres.EphemeralB64
+								}
+								if pres.WrappedDEKB64 != "" {
+									entry.WrappedDEKB64 = pres.WrappedDEKB64
+								}
+							} else {
+								result, err := crypto.HybridEncapsulateWithDEK(scheme, rp, key)
+								if err != nil {
+									errMu.Lock()
+									if firstErr == nil {
+										firstErr = fmt.Errorf("wrap DEK for %s: %w", rp, err)
+									}
+									errMu.Unlock()
+									return
+								}
+								fp, err := crypto.RecipientKeyFingerprint(rp)
+								if err != nil {
+									errMu.Lock()
+									if firstErr == nil {
+										firstErr = fmt.Errorf("recipient fingerprint %s: %w", rp, err)
+									}
+									errMu.Unlock()
+									return
+								}
+								entry = bundle.RecipientEntry{Scheme: scheme, FingerprintB64: fp}
+								if len(result.EphemeralPublicKey) > 0 {
+									entry.EphemeralPubKeyB64 = util.B64Encode(result.EphemeralPublicKey)
+								}
+								if len(result.WrappedDEK) > 0 {
+									entry.WrappedDEKB64 = util.B64Encode(result.WrappedDEK)
+								}
 							}
-							entry := bundle.RecipientEntry{
-								Scheme:         scheme,
-								FingerprintB64: fp,
-							}
-							if pres.EphemeralB64 != "" {
-								entry.EphemeralPubKeyB64 = pres.EphemeralB64
-							}
-							if pres.WrappedDEKB64 != "" {
-								entry.WrappedDEKB64 = pres.WrappedDEKB64
-							}
-							recipientEntries = append(recipientEntries, entry)
-						} else {
-							result, err := crypto.HybridEncapsulateWithDEK(scheme, rp, key)
-							if err != nil {
-								return fmt.Errorf("wrap DEK for %s: %w", rp, err)
-							}
-							fp, err := crypto.RecipientKeyFingerprint(rp)
-							if err != nil {
-								return fmt.Errorf("recipient fingerprint %s: %w", rp, err)
-							}
-							entry := bundle.RecipientEntry{
-								Scheme:         scheme,
-								FingerprintB64: fp,
-							}
-							if len(result.EphemeralPublicKey) > 0 {
-								entry.EphemeralPubKeyB64 = util.B64Encode(result.EphemeralPublicKey)
-							}
-							if len(result.WrappedDEK) > 0 {
-								entry.WrappedDEKB64 = util.B64Encode(result.WrappedDEK)
-							}
-							recipientEntries = append(recipientEntries, entry)
-						}
+							recipientEntries[i] = entry
+						}(i, rp)
+					}
+					wg.Wait()
+					if firstErr != nil {
+						return firstErr
 					}
 
 					hybridMeta = &bundle.HybridMeta{
