@@ -634,8 +634,14 @@ internal/bundle/     # ZIP I/O, manifest read/write/validate
 internal/azure/      # Azure Blob Storage client
 internal/audit/      # Audit log, Merkle seal, provenance
 internal/util/       # Errors, encoding, exit codes
+internal/plugin/     # Plugin discovery and subprocess KEM/sign adapters
 testdata/            # Test fixtures and golden files
+examples/            # Example plugins (e.g. plugin-dummy-kem)
 ```
+
+### Plugins
+
+You can add custom KEM schemes and signature algorithms via **plugins**: executables discovered from `VPACK_PLUGIN_DIR` or config `plugin_dir`. Plugin scheme names appear in `keygen --algo`, `protect --recipient`, and decrypt/sign/verify. See **[docs/plugins.md](docs/plugins.md)** for the contract and **[examples/plugin-dummy-kem](examples/plugin-dummy-kem)** for a minimal example.
 
 ## Exit Codes
 
