@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
+	"github.com/Skpow1234/Vaultpack/internal/kms"
 )
 
 func TestDecryptCmd_Roundtrip(t *testing.T) {
@@ -45,6 +46,51 @@ func TestDecryptCmd_Roundtrip(t *testing.T) {
 	}
 
 	// Verify.
+	recovered, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(recovered) != string(original) {
+		t.Errorf("got %q, want %q", recovered, original)
+	}
+}
+
+func TestDecryptCmd_KMSRoundtrip(t *testing.T) {
+	// Use mock KMS (registered with fixed key so protect and decrypt share the same key).
+	_ = kms.Get("mock") // ensure mock is registered
+	dir := t.TempDir()
+	inFile := filepath.Join(dir, "secret.txt")
+	bundleFile := filepath.Join(dir, "secret.vpack")
+	outFile := filepath.Join(dir, "recovered.txt")
+
+	original := []byte("kms roundtrip data")
+	if err := os.WriteFile(inFile, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCmd()
+	root.SetArgs([]string{
+		"protect",
+		"--in", inFile,
+		"--out", bundleFile,
+		"--kms-provider", "mock",
+		"--kms-key-id", kms.MockKeyID,
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("protect with KMS: %v", err)
+	}
+
+	root2 := NewRootCmd()
+	root2.SetArgs([]string{
+		"decrypt",
+		"--in", bundleFile,
+		"--out", outFile,
+		"--kms-provider", "mock",
+	})
+	if err := root2.Execute(); err != nil {
+		t.Fatalf("decrypt with KMS: %v", err)
+	}
+
 	recovered, err := os.ReadFile(outFile)
 	if err != nil {
 		t.Fatal(err)

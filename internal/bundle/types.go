@@ -50,14 +50,16 @@ type PlaintextHash struct {
 
 // EncryptionMeta describes the AEAD encryption parameters.
 type EncryptionMeta struct {
-	AEAD      string      `json:"aead"`
-	NonceB64  string      `json:"nonce_b64"`
-	TagB64    string      `json:"tag_b64"`
-	AADB64    *string     `json:"aad_b64"`
-	KeyID     KeyID       `json:"key_id"`
-	ChunkSize *int        `json:"chunk_size,omitempty"` // nil for non-chunked (backward compat)
-	KDF       *KDFMeta    `json:"kdf,omitempty"`        // nil for key-file encryption
-	Hybrid    *HybridMeta `json:"hybrid,omitempty"`     // nil for symmetric-only encryption
+	AEAD             string      `json:"aead"`
+	NonceB64         string      `json:"nonce_b64"`
+	TagB64           string      `json:"tag_b64"`
+	AADB64           *string     `json:"aad_b64"`
+	KeyID            KeyID       `json:"key_id"`
+	ChunkSize        *int        `json:"chunk_size,omitempty"` // nil for non-chunked (backward compat)
+	KDF              *KDFMeta    `json:"kdf,omitempty"`        // nil for key-file encryption
+	Hybrid           *HybridMeta `json:"hybrid,omitempty"`     // nil for symmetric-only encryption
+	KmsKeyID         string      `json:"kms_key_id,omitempty"`         // KMS key identifier when DEK is KMS-wrapped
+	KmsWrappedDEKB64 string      `json:"kms_wrapped_dek_b64,omitempty"` // base64-encoded KMS-wrapped DEK
 }
 
 // HybridMeta describes the hybrid/asymmetric key encapsulation parameters.

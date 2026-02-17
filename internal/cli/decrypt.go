@@ -9,7 +9,9 @@ import (
 
 	"github.com/Skpow1234/Vaultpack/internal/audit"
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
+	"github.com/Skpow1234/Vaultpack/internal/config"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
+	"github.com/Skpow1234/Vaultpack/internal/kms"
 	"github.com/Skpow1234/Vaultpack/internal/util"
 	"github.com/spf13/cobra"
 )
@@ -24,6 +26,7 @@ func newDecryptCmd() *cobra.Command {
 		password     string
 		passwordFile string
 		privKeyFile  string
+		kmsProvider  string
 	)
 
 	cmd := &cobra.Command{
@@ -88,6 +91,18 @@ func newDecryptCmd() *cobra.Command {
 			usePassword := password != ""
 			usePrivKey := privKeyFile != ""
 
+			// Read bundle early to check for KMS (affects mode count).
+			br, err := bundle.Read(inFile)
+			if err != nil {
+				return fmt.Errorf("read bundle: %w", err)
+			}
+
+			bundleUsesKMS := br.Manifest.Encryption.KmsKeyID != "" && br.Manifest.Encryption.KmsWrappedDEKB64 != ""
+			if bundleUsesKMS && kmsProvider == "" && config.Get() != nil && config.Get().KmsProvider != "" {
+				kmsProvider = config.Get().KmsProvider
+			}
+			useKMS := bundleUsesKMS && kmsProvider != ""
+
 			// Mutual exclusivity.
 			modes := 0
 			if usePassword {
@@ -99,14 +114,11 @@ func newDecryptCmd() *cobra.Command {
 			if usePrivKey {
 				modes++
 			}
-			if modes > 1 {
-				return fmt.Errorf("--password, --key, and --privkey are mutually exclusive")
+			if useKMS {
+				modes++
 			}
-
-			// Read bundle.
-			br, err := bundle.Read(inFile)
-			if err != nil {
-				return fmt.Errorf("read bundle: %w", err)
+			if modes > 1 {
+				return fmt.Errorf("--password, --key, --privkey, and --kms-provider are mutually exclusive")
 			}
 
 			// Determine encryption mode from manifest.
@@ -115,13 +127,16 @@ func newDecryptCmd() *cobra.Command {
 
 			// Guide user to the right flag.
 			if modes == 0 {
+				if bundleUsesKMS {
+					return fmt.Errorf("this bundle uses KMS-wrapped DEK; provide --kms-provider (e.g. aws or mock)")
+				}
 				if bundleUsesHybrid {
 					return fmt.Errorf("this bundle uses hybrid encryption; provide --privkey <your-private-key.pem>")
 				}
 				if bundleUsesKDF {
 					return fmt.Errorf("this bundle is password-protected; provide --password or --password-file")
 				}
-				return fmt.Errorf("--key is required (or --password / --privkey)")
+				return fmt.Errorf("--key is required (or --password / --privkey / --kms-provider)")
 			}
 
 			// Load, derive, or decapsulate key.
@@ -184,6 +199,21 @@ func newDecryptCmd() *cobra.Command {
 						os.Exit(util.ExitDecryptFailed)
 						return nil
 					}
+				}
+			} else if useKMS {
+				wrapped, err := util.B64Decode(br.Manifest.Encryption.KmsWrappedDEKB64)
+				if err != nil {
+					return fmt.Errorf("decode KMS-wrapped DEK: %w", err)
+				}
+				provider := kms.Get(kmsProvider)
+				if provider == nil {
+					return fmt.Errorf("KMS provider %q not found; available: %v", kmsProvider, kms.Providers())
+				}
+				key, err = provider.UnwrapDEK(wrapped, br.Manifest.Encryption.KmsKeyID)
+				if err != nil {
+					printer.Error(util.ErrDecryptFailed, fmt.Sprintf("KMS unwrap failed: %v", err))
+					os.Exit(util.ExitDecryptFailed)
+					return nil
 				}
 			} else if usePassword {
 				if !bundleUsesKDF {
@@ -349,6 +379,7 @@ func newDecryptCmd() *cobra.Command {
 	cmd.Flags().StringVar(&password, "password", "", "decrypt with a password")
 	cmd.Flags().StringVar(&passwordFile, "password-file", "", "read password from file")
 	cmd.Flags().StringVar(&privKeyFile, "privkey", "", "private key for hybrid decryption (PEM)")
+	cmd.Flags().StringVar(&kmsProvider, "kms-provider", "", "KMS provider to unwrap DEK (when bundle has kms_key_id; e.g. aws, mock)")
 
 	return cmd
 }

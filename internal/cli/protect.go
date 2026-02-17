@@ -13,6 +13,7 @@ import (
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
 	"github.com/Skpow1234/Vaultpack/internal/config"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
+	"github.com/Skpow1234/Vaultpack/internal/kms"
 	"github.com/Skpow1234/Vaultpack/internal/util"
 	"github.com/spf13/cobra"
 )
@@ -36,10 +37,12 @@ func newProtectCmd() *cobra.Command {
 		kdfAlgo      string
 		kdfTime      uint32
 		kdfMemory    uint32
-		recipients     []string
-		compressAlgo   string
-		splitShares    int
-		splitThreshold int
+		recipients      []string
+		compressAlgo    string
+		splitShares     int
+		splitThreshold  int
+		kmsProvider     string
+		kmsKeyID        string
 	)
 
 	cmd := &cobra.Command{
@@ -82,9 +85,13 @@ func newProtectCmd() *cobra.Command {
 				return fmt.Errorf("unsupported compression %q; supported: none, gzip, zstd", compressAlgo)
 			}
 
-			// Mutual exclusivity: password, key, recipient.
+			// Mutual exclusivity: password, key, recipient, KMS.
 			usePassword := password != "" || passwordFile != ""
 			useRecipient := len(recipients) > 0
+			useKMS := kmsProvider != "" && kmsKeyID != ""
+			if !useKMS && (kmsProvider != "" || kmsKeyID != "") {
+				return fmt.Errorf("both --kms-provider and --kms-key-id are required for KMS encryption")
+			}
 			keyModes := 0
 			if usePassword {
 				keyModes++
@@ -95,8 +102,11 @@ func newProtectCmd() *cobra.Command {
 			if useRecipient {
 				keyModes++
 			}
+			if useKMS {
+				keyModes++
+			}
 			if keyModes > 1 {
-				return fmt.Errorf("--password, --key, and --recipient are mutually exclusive")
+				return fmt.Errorf("--password, --key, --recipient, and --kms-provider/--kms-key-id are mutually exclusive")
 			}
 
 			// Apply config defaults when flags not set (precedence: CLI > env > config).
@@ -243,10 +253,28 @@ func newProtectCmd() *cobra.Command {
 				inputSize = int64(plaintextBuf.Len())
 			}
 
+			// Apply config for KMS when flags not set.
+			if c := config.Get(); c != nil && !useKMS {
+				if !cmd.Flags().Changed("kms-provider") && c.KmsProvider != "" {
+					kmsProvider = c.KmsProvider
+				}
+				if !cmd.Flags().Changed("kms-key-id") && c.KmsKeyID != "" {
+					kmsKeyID = c.KmsKeyID
+				}
+				if kmsProvider != "" && kmsKeyID != "" {
+					useKMS = true
+					keyModes++
+				}
+			}
+			if useKMS && keyModes > 1 {
+				return fmt.Errorf("--password, --key, --recipient, and --kms-provider/--kms-key-id are mutually exclusive")
+			}
+
 			// Derive, encapsulate, or load key.
 			var key []byte
 			var kdfMeta *bundle.KDFMeta
 			var hybridMeta *bundle.HybridMeta
+			var kmsKeyIDStored, kmsWrappedDEKB64Stored string
 			if useRecipient {
 				if len(recipients) == 1 {
 					// Single-recipient hybrid encryption (backward-compatible).
@@ -322,6 +350,22 @@ func newProtectCmd() *cobra.Command {
 				}
 
 				// No key file output for hybrid encryption.
+				keyOutFile = ""
+			} else if useKMS {
+				key, err = crypto.GenerateKey(crypto.AES256KeySize)
+				if err != nil {
+					return fmt.Errorf("generate DEK: %w", err)
+				}
+				provider := kms.Get(kmsProvider)
+				if provider == nil {
+					return fmt.Errorf("KMS provider %q not found; available: %v", kmsProvider, kms.Providers())
+				}
+				wrapped, err := provider.WrapDEK(key, kmsKeyID)
+				if err != nil {
+					return fmt.Errorf("KMS wrap DEK: %w", err)
+				}
+				kmsKeyIDStored = kmsKeyID
+				kmsWrappedDEKB64Stored = util.B64Encode(wrapped)
 				keyOutFile = ""
 			} else if usePassword {
 				// Password-based key derivation.
@@ -441,8 +485,26 @@ func newProtectCmd() *cobra.Command {
 
 			// Select manifest version: v2 if using new features, v1 for backward compat.
 			manifestVer := bundle.ManifestVersionV1
-			if compMeta != nil || (hybridMeta != nil && len(hybridMeta.Recipients) > 0) || splitMeta != nil {
+			if compMeta != nil || (hybridMeta != nil && len(hybridMeta.Recipients) > 0) || splitMeta != nil || kmsKeyIDStored != "" {
 				manifestVer = bundle.ManifestVersionV2
+			}
+
+			encMeta := bundle.EncryptionMeta{
+				AEAD:      cipherName,
+				NonceB64:  util.B64Encode(streamResult.BaseNonce),
+				TagB64:    util.B64Encode(streamResult.LastTag),
+				AADB64:    aadB64,
+				ChunkSize: &chunkSize,
+				KDF:       kdfMeta,
+				Hybrid:    hybridMeta,
+				KeyID: bundle.KeyID{
+					Algo:      keyAlgo,
+					DigestB64: keyDigest,
+				},
+			}
+			if kmsKeyIDStored != "" {
+				encMeta.KmsKeyID = kmsKeyIDStored
+				encMeta.KmsWrappedDEKB64 = kmsWrappedDEKB64Stored
 			}
 
 			m := &bundle.Manifest{
@@ -456,19 +518,7 @@ func newProtectCmd() *cobra.Command {
 					Algo:      hashAlgo,
 					DigestB64: util.B64Encode(digest),
 				},
-				Encryption: bundle.EncryptionMeta{
-					AEAD:      cipherName,
-					NonceB64:  util.B64Encode(streamResult.BaseNonce),
-					TagB64:    util.B64Encode(streamResult.LastTag),
-					AADB64:    aadB64,
-					ChunkSize: &chunkSize,
-					KDF:       kdfMeta,
-					Hybrid:    hybridMeta,
-					KeyID: bundle.KeyID{
-						Algo:      keyAlgo,
-						DigestB64: keyDigest,
-					},
-				},
+				Encryption: encMeta,
 				Ciphertext: bundle.CiphertextMeta{
 					Size: streamResult.CiphertextSize,
 				},
@@ -652,6 +702,9 @@ func newProtectCmd() *cobra.Command {
 				if usePassword {
 					printer.Human("KDF:       %s", kdfAlgo)
 				}
+				if useKMS {
+					printer.Human("KMS:       %s (key: %s)", kmsProvider, kmsKeyIDStored)
+				}
 				printer.Human("Cipher:    %s (chunked, %d byte chunks)", cipherName, chunkSize)
 				if compMeta != nil {
 					printer.Human("Compress:  %s (%d → %d bytes)", compressAlgo, compMeta.OriginalSize, plaintextBuf.Len())
@@ -687,6 +740,8 @@ func newProtectCmd() *cobra.Command {
 	cmd.Flags().StringVar(&compressAlgo, "compress", crypto.CompressNone, "pre-encryption compression: none, gzip, zstd")
 	cmd.Flags().IntVar(&splitShares, "split-shares", 0, "split the key into N Shamir shares (requires --split-threshold)")
 	cmd.Flags().IntVar(&splitThreshold, "split-threshold", 0, "minimum shares to reconstruct (K-of-N, requires --split-shares)")
+	cmd.Flags().StringVar(&kmsProvider, "kms-provider", "", "KMS provider for DEK wrap: aws, mock (or from config)")
+	cmd.Flags().StringVar(&kmsKeyID, "kms-key-id", "", "KMS key ID (e.g. alias/my-key for AWS, or mock-key-id for mock)")
 
 	return cmd
 }

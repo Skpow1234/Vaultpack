@@ -26,6 +26,8 @@ type EffectiveConfig struct {
 	DefaultKeyPath  string   `mapstructure:"default_key_path" json:"default_key_path"`
 	DefaultPubPath  string   `mapstructure:"default_pubkey_path" json:"default_pubkey_path"`
 	Recipients      []string `mapstructure:"recipients" json:"recipients,omitempty"`
+	KmsProvider     string   `mapstructure:"kms_provider" json:"kms_provider,omitempty"`
+	KmsKeyID        string   `mapstructure:"kms_key_id" json:"kms_key_id,omitempty"`
 }
 
 // Profile holds profile-specific overrides.
@@ -37,6 +39,8 @@ type Profile struct {
 	DefaultKeyPath string   `mapstructure:"default_key_path"`
 	DefaultPubPath string   `mapstructure:"default_pubkey_path"`
 	Recipients     []string `mapstructure:"recipients"`
+	KmsProvider    string   `mapstructure:"kms_provider"`
+	KmsKeyID       string   `mapstructure:"kms_key_id"`
 }
 
 // ConfigFile represents the root config file structure (optional base + profiles).
@@ -148,6 +152,12 @@ func readAndMerge(path, profile string, base *EffectiveConfig) error {
 	if v.IsSet("recipients") {
 		base.Recipients = v.GetStringSlice("recipients")
 	}
+	if v.IsSet("kms_provider") {
+		base.KmsProvider = v.GetString("kms_provider")
+	}
+	if v.IsSet("kms_key_id") {
+		base.KmsKeyID = v.GetString("kms_key_id")
+	}
 
 	// Apply profile overrides.
 	if profile != "" && v.IsSet("profiles") {
@@ -178,6 +188,12 @@ func readAndMerge(path, profile string, base *EffectiveConfig) error {
 						base.Recipients = append(base.Recipients, s)
 					}
 				}
+			}
+			if v, ok := p["kms_provider"].(string); ok && v != "" {
+				base.KmsProvider = v
+			}
+			if v, ok := p["kms_key_id"].(string); ok && v != "" {
+				base.KmsKeyID = v
 			}
 		}
 	}

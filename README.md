@@ -46,6 +46,11 @@ vaultpack sign --in config.json.vpack --signing-priv signpq.key
 # Encrypt for multiple recipients
 vaultpack protect --in config.json --recipient alice.pub --recipient bob.pub
 
+# KMS: wrap DEK with AWS KMS or mock (no key file written; DEK never stored in plaintext)
+vaultpack protect --in config.json --out config.vpack --kms-provider aws --kms-key-id alias/my-key
+vaultpack decrypt --in config.vpack --out config.json --kms-provider aws
+# For tests: --kms-provider mock --kms-key-id mock-key-id
+
 # Inspect the bundle metadata
 vaultpack inspect --in config.json.vpack
 
@@ -181,8 +186,12 @@ vaultpack protect --in <file> [flags]
 | `--compress`     | `none`           | Pre-encryption compression: `none`, `gzip`, `zstd`            |
 | `--split-shares` |                  | Split key into N Shamir shares (requires `--split-threshold`) |
 | `--split-threshold` |               | K: minimum shares to reconstruct the key                      |
+| `--kms-provider` |                  | KMS provider for DEK wrap: `aws`, `mock` (or from config)      |
+| `--kms-key-id`   |                  | KMS key ID (e.g. `alias/my-key` for AWS, `mock-key-id` for mock) |
 | `--stdin`        |                  | Read plaintext from standard input                            |
 | `--stdout`       |                  | Write bundle to standard output                               |
+
+When using `--kms-provider` and `--kms-key-id`, a random DEK is generated, used to encrypt the payload, then wrapped by the KMS. Only the wrapped DEK and key ID are stored in the manifest; no key file is written. Decrypt with `--kms-provider` to unwrap the DEK automatically.
 
 When using `--password`, no key file is generated -- the key is derived from your password using the selected KDF. When using a key file, it is base64-encoded with a `b64:` prefix. Store either securely.
 
@@ -216,10 +225,11 @@ vaultpack decrypt --in <bundle> --out <file> --privkey recipient.key
 | `--password`      |            | Decrypt with a password                            |
 | `--password-file` |            | Read password from file                            |
 | `--privkey`       |            | Private key for hybrid decryption (PEM)            |
+| `--kms-provider`  |            | KMS provider to unwrap DEK (when bundle has `kms_key_id`) |
 | `--aad`           |            | Override AAD from manifest                         |
 | `--stdout`        |            | Write decrypted plaintext to standard output       |
 
-Provide exactly one of `--key`, `--password`, or `--privkey`. The correct method is auto-detected from the manifest.
+Provide exactly one of `--key`, `--password`, `--privkey`, or `--kms-provider` (when the bundle was encrypted with KMS). The correct method is auto-detected from the manifest.
 
 ### `inspect` -- Show bundle metadata
 
@@ -540,6 +550,7 @@ The manifest records the base nonce, the authentication tag of the final chunk, 
 ### Other Properties
 
 - **Key fingerprint**: SHA-256 of the raw key is stored in the manifest for early wrong-key detection before attempting decryption
+- **KMS (DEK wrap)**: optional `--kms-provider` (e.g. AWS KMS, mock) wraps the DEK with a KMS key; only the wrapped ciphertext and key ID are stored; no key file is written; decrypt unwraps automatically with `--kms-provider`
 - **Multi-recipient**: one random DEK is generated and wrapped independently for each recipient
 - **Forward secrecy**: ECDH-based hybrid schemes use ephemeral keys; compromising the recipient's long-term key does not reveal past DEKs
 - **Compression**: optional pre-encryption gzip/zstd; data is compressed *before* encryption so the ciphertext reveals no compression-ratio side channel
