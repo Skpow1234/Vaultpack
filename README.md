@@ -105,6 +105,12 @@ vaultpack seal --dir ./bundles/ --out merkle-root.txt
 vaultpack verify-seal --dir ./bundles/ --root $(cat merkle-root.txt)
 vaultpack audit export --format csv --operation protect
 
+# Key rotation & rewrap (M22)
+vaultpack rewrap          --in data.vpack --kms-provider aws --from-kms-key-id arn:aws:kms:... --to-kms-key-id arn:aws:kms:...
+vaultpack rotate-key      --in data.vpack --old-key data.key --new-key-out data.new.key
+vaultpack add-recipient   --in data.vpack --privkey alice.key --recipient bob.pub
+vaultpack remove-recipient --in data.vpack --recipient bob.pub
+
 # Cloud storage: read/write directly from Azure, AWS S3, GCS, or HTTPS
 vaultpack protect --in az://mycontainer/data.csv --out az://mycontainer/data.vpack --azure-account mystorageaccount
 vaultpack protect --in s3://mybucket/data.csv     --out s3://mybucket/data.vpack     --aws-region us-east-1
