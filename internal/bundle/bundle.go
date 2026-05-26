@@ -98,21 +98,32 @@ func Read(path string) (*ReadResult, error) {
 		return nil, fmt.Errorf("open bundle: %w", err)
 	}
 	defer zr.Close()
+	return readFromZip(&zr.Reader)
+}
 
+// ReadBytes parses a .vpack bundle from an in-memory byte slice and
+// returns the same result type as Read. This is the entry point used by
+// the public SDK's in-memory and WASM paths.
+func ReadBytes(data []byte) (*ReadResult, error) {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, fmt.Errorf("open bundle: %w", err)
+	}
+	return readFromZip(zr)
+}
+
+func readFromZip(zr *zip.Reader) (*ReadResult, error) {
 	result := &ReadResult{}
-
 	for _, f := range zr.File {
 		rc, err := f.Open()
 		if err != nil {
 			return nil, fmt.Errorf("open entry %q: %w", f.Name, err)
 		}
-
 		data, err := io.ReadAll(rc)
 		rc.Close()
 		if err != nil {
 			return nil, fmt.Errorf("read entry %q: %w", f.Name, err)
 		}
-
 		switch f.Name {
 		case payloadEntry:
 			result.Ciphertext = data
@@ -130,7 +141,6 @@ func Read(path string) (*ReadResult, error) {
 		return nil, fmt.Errorf("%w: missing %s", util.ErrBundleCorrupted, manifestEntry)
 	}
 
-	// Parse and validate manifest.
 	m, err := UnmarshalManifest(result.ManifestBytes)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", util.ErrManifestInvalid, err)
@@ -139,7 +149,6 @@ func Read(path string) (*ReadResult, error) {
 		return nil, err
 	}
 	result.Manifest = m
-
 	return result, nil
 }
 
@@ -151,7 +160,19 @@ func ReadManifestOnly(path string) (*Manifest, []byte, error) {
 		return nil, nil, fmt.Errorf("open bundle: %w", err)
 	}
 	defer zr.Close()
+	return readManifestFromZip(&zr.Reader)
+}
 
+// ReadManifestOnlyBytes is the in-memory counterpart of ReadManifestOnly.
+func ReadManifestOnlyBytes(data []byte) (*Manifest, []byte, error) {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, nil, fmt.Errorf("open bundle: %w", err)
+	}
+	return readManifestFromZip(zr)
+}
+
+func readManifestFromZip(zr *zip.Reader) (*Manifest, []byte, error) {
 	for _, f := range zr.File {
 		if f.Name == manifestEntry {
 			rc, err := f.Open()
@@ -159,7 +180,6 @@ func ReadManifestOnly(path string) (*Manifest, []byte, error) {
 				return nil, nil, fmt.Errorf("open manifest entry: %w", err)
 			}
 			defer rc.Close()
-
 			data, err := io.ReadAll(rc)
 			if err != nil {
 				return nil, nil, fmt.Errorf("read manifest: %w", err)
@@ -171,7 +191,6 @@ func ReadManifestOnly(path string) (*Manifest, []byte, error) {
 			return m, data, nil
 		}
 	}
-
 	return nil, nil, fmt.Errorf("%w: missing %s", util.ErrBundleCorrupted, manifestEntry)
 }
 

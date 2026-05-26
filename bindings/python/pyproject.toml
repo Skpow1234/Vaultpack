@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vaultpack"
+version = "0.1.0"
+description = "Python bindings for VaultPack (libvaultpack via ctypes)"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "Skpow1234" }]
+keywords = ["vaultpack", "encryption", "kms", "post-quantum", "signing"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Security :: Cryptography",
+]
+
+[project.urls]
+Homepage = "https://github.com/Skpow1234/Vaultpack"
+Documentation = "https://github.com/Skpow1234/Vaultpack/tree/main/bindings/python"
+Issues = "https://github.com/Skpow1234/Vaultpack/issues"
+
+[tool.setuptools.packages.find]
+include = ["vaultpack*"]

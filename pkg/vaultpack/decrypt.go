@@ -159,21 +159,7 @@ func readBundle(opts DecryptOptions) (*bundle.ReadResult, error) {
 	case opts.InputPath != "":
 		return bundle.Read(opts.InputPath)
 	case opts.InputBytes != nil:
-		// Write to a temp file because bundle.Read takes a path; the
-		// archive/zip stdlib supports ReaderAt over bytes but the current
-		// internal API is path-only. Keep this in one place so we can swap
-		// to a streaming path without breaking the SDK.
-		tmp, err := os.CreateTemp("", "vaultpack-sdk-*.vpack")
-		if err != nil {
-			return nil, fmt.Errorf("temp bundle: %w", err)
-		}
-		defer os.Remove(tmp.Name())
-		if _, err := tmp.Write(opts.InputBytes); err != nil {
-			tmp.Close()
-			return nil, fmt.Errorf("write temp bundle: %w", err)
-		}
-		tmp.Close()
-		return bundle.Read(tmp.Name())
+		return bundle.ReadBytes(opts.InputBytes)
 	default:
 		return nil, errors.New("vaultpack.Decrypt: InputPath or InputBytes is required")
 	}
