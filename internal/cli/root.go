@@ -144,6 +144,8 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newRemoveRecipientCmd())
 	// M23: policy.
 	root.AddCommand(newPolicyCmd())
+	// M26: service mode.
+	root.AddCommand(newServeCmd())
 
 	return root
 }
