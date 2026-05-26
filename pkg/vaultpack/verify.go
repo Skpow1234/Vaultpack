@@ -45,18 +45,36 @@ func Verify(opts VerifyOptions) (*VerifyResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("vaultpack.Verify: read: %w", err)
 	}
+	return verifyParsed(br, opts.PublicKey, opts.PublicKeyPath)
+}
+
+// VerifyBytes is the in-memory counterpart of Verify, accepting the raw
+// bundle bytes directly. Browser / WASM friendly.
+func VerifyBytes(bundleBytes []byte, opts VerifyOptions) (*VerifyResult, error) {
+	if opts.PublicKey == nil && opts.PublicKeyPath == "" {
+		return nil, errors.New("vaultpack.VerifyBytes: PublicKey or PublicKeyPath is required")
+	}
+	br, err := bundle.ReadBytes(bundleBytes)
+	if err != nil {
+		return nil, fmt.Errorf("vaultpack.VerifyBytes: read: %w", err)
+	}
+	return verifyParsed(br, opts.PublicKey, opts.PublicKeyPath)
+}
+
+func verifyParsed(br *bundle.ReadResult, pubBytes []byte, pubPath string) (*VerifyResult, error) {
+	var err error
 	if br.Signature == nil {
 		return nil, errors.New("vaultpack.Verify: bundle has no signature")
 	}
 
 	var (
-		pub      any
-		algo     string
+		pub  any
+		algo string
 	)
-	if opts.PublicKeyPath != "" {
-		pub, algo, err = crypto.LoadAnyPublicKey(opts.PublicKeyPath)
+	if pubPath != "" {
+		pub, algo, err = crypto.LoadAnyPublicKey(pubPath)
 	} else {
-		pub, algo, err = crypto.ParseAnyPublicKey(opts.PublicKey)
+		pub, algo, err = crypto.ParseAnyPublicKey(pubBytes)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("vaultpack.Verify: load public key: %w", err)

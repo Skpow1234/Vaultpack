@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
@@ -24,7 +25,7 @@ type DecryptOptions struct {
 	InputBytes []byte
 
 	OutputPath   string
-	OutputWriter interface{ Write(p []byte) (int, error) }
+	OutputWriter io.Writer
 
 	Key      []byte
 	Password string

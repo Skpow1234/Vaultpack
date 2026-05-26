@@ -38,6 +38,17 @@ func Inspect(path string) (*Manifest, error) {
 	return m, nil
 }
 
+// InspectBytes is the in-memory counterpart of Inspect, parsing the manifest
+// directly from a byte slice. Useful for browser / WASM callers that have
+// no filesystem.
+func InspectBytes(data []byte) (*Manifest, error) {
+	m, _, err := bundle.ReadManifestOnlyBytes(data)
+	if err != nil {
+		return nil, fmt.Errorf("inspect bytes: %w", err)
+	}
+	return m, nil
+}
+
 // MarshalManifest serializes a manifest to indented JSON in the canonical
 // VaultPack on-disk format. It is the inverse of bundle.UnmarshalManifest.
 func MarshalManifest(m *Manifest) ([]byte, error) {

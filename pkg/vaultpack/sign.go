@@ -22,6 +22,70 @@ type SignOptions struct {
 	Algo           string // optional override; otherwise auto-detected
 }
 
+// SignBytes is the in-memory counterpart of SignBundle. It accepts the raw
+// bundle bytes, returns the re-signed bundle bytes along with the signature
+// metadata. Browser / WASM friendly.
+func SignBytes(bundleBytes []byte, opts SignOptions) ([]byte, *SignResult, error) {
+	if opts.PrivateKey == nil && opts.PrivateKeyPath == "" {
+		return nil, nil, errors.New("vaultpack.SignBytes: PrivateKey or PrivateKeyPath is required")
+	}
+	br, err := bundle.ReadBytes(bundleBytes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("vaultpack.SignBytes: read: %w", err)
+	}
+	signer, detected, err := loadSigner(opts.PrivateKey, opts.PrivateKeyPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	algo := detected
+	if opts.Algo != "" {
+		if opts.Algo != detected {
+			return nil, nil, fmt.Errorf("vaultpack.SignBytes: Algo %q does not match key type %q", opts.Algo, detected)
+		}
+		algo = opts.Algo
+	}
+	br.Manifest.SignatureAlgo = &algo
+	ts := time.Now().UTC().Format(time.RFC3339)
+	br.Manifest.SignedAt = &ts
+
+	canonical, err := bundle.CanonicalManifest(br.Manifest)
+	if err != nil {
+		return nil, nil, fmt.Errorf("vaultpack.SignBytes: canonicalize: %w", err)
+	}
+	payloadHash, err := crypto.HashReader(bytes.NewReader(br.Ciphertext), "sha256")
+	if err != nil {
+		return nil, nil, fmt.Errorf("vaultpack.SignBytes: hash: %w", err)
+	}
+	sig, err := crypto.SignMessage(signer, algo, crypto.BuildSigningMessage(canonical, payloadHash))
+	if err != nil {
+		return nil, nil, fmt.Errorf("vaultpack.SignBytes: sign: %w", err)
+	}
+	mb, err := bundle.MarshalManifest(br.Manifest)
+	if err != nil {
+		return nil, nil, fmt.Errorf("vaultpack.SignBytes: marshal manifest: %w", err)
+	}
+	var out bytes.Buffer
+	if err := bundle.Write(&bundle.WriteParams{
+		Writer:        &out,
+		Ciphertext:    br.Ciphertext,
+		ManifestBytes: mb,
+		Signature:     sig,
+	}); err != nil {
+		return nil, nil, fmt.Errorf("vaultpack.SignBytes: write: %w", err)
+	}
+	return out.Bytes(), &SignResult{Algorithm: algo, SignedAt: ts, Signature: sig}, nil
+}
+
+func loadSigner(pk []byte, pkPath string) (stdSigner, string, error) {
+	if pk != nil && pkPath != "" {
+		return nil, "", errors.New("PrivateKey and PrivateKeyPath are mutually exclusive")
+	}
+	if pkPath != "" {
+		return crypto.LoadPrivateKey(pkPath)
+	}
+	return crypto.ParsePrivateKey(pk)
+}
+
 // SignResult is what SignBundle returns on success.
 type SignResult struct {
 	Algorithm string
@@ -39,24 +103,12 @@ func SignBundle(opts SignOptions) (*SignResult, error) {
 	if opts.PrivateKey == nil && opts.PrivateKeyPath == "" {
 		return nil, errors.New("vaultpack.SignBundle: PrivateKey or PrivateKeyPath is required")
 	}
-	if opts.PrivateKey != nil && opts.PrivateKeyPath != "" {
-		return nil, errors.New("vaultpack.SignBundle: PrivateKey and PrivateKeyPath are mutually exclusive")
-	}
 
 	br, err := bundle.Read(opts.BundlePath)
 	if err != nil {
 		return nil, fmt.Errorf("vaultpack.SignBundle: read: %w", err)
 	}
-
-	var (
-		signer   stdSigner
-		detected string
-	)
-	if opts.PrivateKeyPath != "" {
-		signer, detected, err = crypto.LoadPrivateKey(opts.PrivateKeyPath)
-	} else {
-		signer, detected, err = crypto.ParsePrivateKey(opts.PrivateKey)
-	}
+	signer, detected, err := loadSigner(opts.PrivateKey, opts.PrivateKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("vaultpack.SignBundle: load key: %w", err)
 	}

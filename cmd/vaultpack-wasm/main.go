@@ -16,13 +16,14 @@
 //	Vaultpack.decrypt(optsObject)               -> resultObject
 //	Vaultpack.inspect(bundleBytes:Uint8Array)   -> resultObject
 //	Vaultpack.sign(optsObject)                  -> resultObject (in-memory)
-//	Vaultpack.verify(bundleBytes, optsObject)   -> resultObject
+//	Vaultpack.verify(optsObject)                -> resultObject
 //
 // Every method takes plain JS objects, never file paths — the WASM
 // sandbox has no filesystem. Binary blobs are passed as Uint8Array.
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"errors"
 	"syscall/js"
@@ -39,16 +40,10 @@ func main() {
 	obj.Set("sign", js.FuncOf(jsSign))
 	obj.Set("verify", js.FuncOf(jsVerify))
 	js.Global().Set("Vaultpack", obj)
-
-	// Keep the Go runtime alive; the JS host is in control.
 	select {}
 }
 
-// --- helpers ---
-
-func jsError(msg string) any {
-	return map[string]any{"ok": false, "error": msg}
-}
+func jsError(msg string) any { return map[string]any{"ok": false, "error": msg} }
 
 func bytesFromJS(v js.Value) ([]byte, error) {
 	if v.IsUndefined() || v.IsNull() {
@@ -79,21 +74,15 @@ func optString(opts js.Value, key string) string {
 	return v.String()
 }
 
-func manifestToMap(m *vaultpack.Manifest) any {
-	// Round-trip through JSON via internal bundle helpers for fidelity.
+func manifestJS(m *vaultpack.Manifest) any {
 	data, err := vaultpack.MarshalManifest(m)
 	if err != nil {
 		return nil
 	}
-	parsed := js.Global().Get("JSON").Call("parse", string(data))
-	return parsed
+	return js.Global().Get("JSON").Call("parse", string(data))
 }
 
-// --- exported functions ---
-
-func jsVersion(this js.Value, args []js.Value) any {
-	return vaultpack.Version
-}
+func jsVersion(this js.Value, args []js.Value) any { return vaultpack.Version }
 
 func jsProtect(this js.Value, args []js.Value) any {
 	if len(args) < 1 {
@@ -115,27 +104,23 @@ func jsProtect(this js.Value, args []js.Value) any {
 	if err != nil {
 		return jsError("protect: " + err.Error())
 	}
-	opts := vaultpack.ProtectOptions{
+	var buf bytes.Buffer
+	res, err := vaultpack.Protect(vaultpack.ProtectOptions{
 		Plaintext:    plaintext,
 		Key:          key,
 		Password:     optString(o, "password"),
 		Cipher:       optString(o, "cipher"),
 		InputName:    optString(o, "inputName"),
 		AAD:          aad,
-		OutputWriter: discardWriter{}, // bundle bytes are captured below
-	}
-	// Use an in-memory buffer for the bundle (no fs in WASM).
-	buf := newByteBuffer()
-	opts.OutputPath = ""
-	opts.OutputWriter = buf
-	res, err := vaultpack.Protect(opts)
+		OutputWriter: &buf,
+	})
 	if err != nil {
 		return jsError(err.Error())
 	}
 	reply := map[string]any{
 		"ok":       true,
 		"bundle":   bytesToJS(buf.Bytes()),
-		"manifest": manifestToMap(res.Manifest),
+		"manifest": manifestJS(res.Manifest),
 	}
 	if res.GeneratedKey != nil {
 		reply["generatedKey"] = bytesToJS(res.GeneratedKey)
@@ -149,10 +134,7 @@ func jsDecrypt(this js.Value, args []js.Value) any {
 	}
 	o := args[0]
 	bundleBytes, err := bytesFromJS(o.Get("bundle"))
-	if err != nil {
-		return jsError("decrypt: " + err.Error())
-	}
-	if bundleBytes == nil {
+	if err != nil || bundleBytes == nil {
 		return jsError("decrypt: bundle (Uint8Array) is required")
 	}
 	key, err := bytesFromJS(o.Get("key"))
@@ -163,19 +145,18 @@ func jsDecrypt(this js.Value, args []js.Value) any {
 	if err != nil {
 		return jsError("decrypt: " + err.Error())
 	}
-	opts := vaultpack.DecryptOptions{
+	res, err := vaultpack.Decrypt(vaultpack.DecryptOptions{
 		InputBytes: bundleBytes,
 		Key:        key,
 		Password:   optString(o, "password"),
 		AAD:        aad,
-	}
-	res, err := vaultpack.Decrypt(opts)
+	})
 	if err != nil {
 		return jsError(err.Error())
 	}
 	return map[string]any{
 		"ok":        true,
-		"manifest":  manifestToMap(res.Manifest),
+		"manifest":  manifestJS(res.Manifest),
 		"plaintext": bytesToJS(res.Plaintext),
 	}
 }
@@ -184,25 +165,15 @@ func jsInspect(this js.Value, args []js.Value) any {
 	if len(args) < 1 {
 		return jsError("inspect: bundle (Uint8Array) is required")
 	}
-	bundleBytes, err := bytesFromJS(args[0])
-	if err != nil || bundleBytes == nil {
+	b, err := bytesFromJS(args[0])
+	if err != nil || b == nil {
 		return jsError("inspect: bundle (Uint8Array) is required")
 	}
-	// Re-use Decrypt's path-or-bytes resolver via a Decrypt-only-inspect
-	// equivalent: parse the manifest only.
-	tmpPath, err := writeWasmTemp(bundleBytes)
+	m, err := vaultpack.InspectBytes(b)
 	if err != nil {
 		return jsError(err.Error())
 	}
-	defer removeWasmTemp(tmpPath)
-	m, err := vaultpack.Inspect(tmpPath)
-	if err != nil {
-		return jsError(err.Error())
-	}
-	return map[string]any{
-		"ok":       true,
-		"manifest": manifestToMap(m),
-	}
+	return map[string]any{"ok": true, "manifest": manifestJS(m)}
 }
 
 func jsSign(this js.Value, args []js.Value) any {
@@ -218,23 +189,10 @@ func jsSign(this js.Value, args []js.Value) any {
 	if pem == "" {
 		return jsError("sign: privateKeyPEM is required")
 	}
-	algo := optString(o, "algo")
-
-	tmpPath, err := writeWasmTemp(bundleBytes)
-	if err != nil {
-		return jsError(err.Error())
-	}
-	defer removeWasmTemp(tmpPath)
-
-	res, err := vaultpack.SignBundle(vaultpack.SignOptions{
-		BundlePath: tmpPath,
+	signed, res, err := vaultpack.SignBytes(bundleBytes, vaultpack.SignOptions{
 		PrivateKey: []byte(pem),
-		Algo:       algo,
+		Algo:       optString(o, "algo"),
 	})
-	if err != nil {
-		return jsError(err.Error())
-	}
-	signed, err := readWasmTemp(tmpPath)
 	if err != nil {
 		return jsError(err.Error())
 	}
@@ -260,16 +218,8 @@ func jsVerify(this js.Value, args []js.Value) any {
 	if pem == "" {
 		return jsError("verify: publicKeyPEM is required")
 	}
-
-	tmpPath, err := writeWasmTemp(bundleBytes)
-	if err != nil {
-		return jsError(err.Error())
-	}
-	defer removeWasmTemp(tmpPath)
-
-	res, err := vaultpack.Verify(vaultpack.VerifyOptions{
-		BundlePath: tmpPath,
-		PublicKey:  []byte(pem),
+	res, err := vaultpack.VerifyBytes(bundleBytes, vaultpack.VerifyOptions{
+		PublicKey: []byte(pem),
 	})
 	if err != nil {
 		return jsError(err.Error())
@@ -279,6 +229,6 @@ func jsVerify(this js.Value, args []js.Value) any {
 		"valid":     res.Valid,
 		"algorithm": res.Algorithm,
 		"signedAt":  res.SignedAt,
-		"manifest":  manifestToMap(res.Manifest),
+		"manifest":  manifestJS(res.Manifest),
 	}
 }
