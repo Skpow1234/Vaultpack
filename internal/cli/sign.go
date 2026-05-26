@@ -23,6 +23,9 @@ func newSignCmd() *cobra.Command {
 		algo            string
 		useTransparency bool
 		rekorURL        string
+		keyless         bool
+		fulcioURL       string
+		oidcTokenFile   string
 	)
 
 	cmd := &cobra.Command{
@@ -42,8 +45,15 @@ func newSignCmd() *cobra.Command {
 			if inFile == "" {
 				return fmt.Errorf("--in is required")
 			}
-			if signingPriv == "" {
-				return fmt.Errorf("--signing-priv is required")
+			if keyless {
+				if !useTransparency {
+					return fmt.Errorf("--keyless requires --transparency")
+				}
+				if signingPriv != "" {
+					return fmt.Errorf("--keyless cannot be combined with --signing-priv")
+				}
+			} else if signingPriv == "" {
+				return fmt.Errorf("--signing-priv is required (or use --keyless)")
 			}
 
 			// Remote input (az://, s3://, gs://): download to temp, sign locally,
@@ -75,9 +85,37 @@ func newSignCmd() *cobra.Command {
 
 			var signAlgo string
 			var sig []byte
+			var keylessSess *keylessSession
 
-			// Plugin sign: require --algo and use plugin binary.
-			if cmd.Flags().Changed("algo") && plugin.GlobalRegistry().SignAlgo(algo) != "" {
+			switch {
+			case keyless:
+				// Keyless: ephemeral ECDSA key + Fulcio cert chain.
+				kctx, kcancel := context.WithTimeout(context.Background(), 90*time.Second)
+				sess, err := startKeylessSession(kctx, fulcioURL, oidcTokenFile)
+				kcancel()
+				if err != nil {
+					return fmt.Errorf("keyless session: %w", err)
+				}
+				keylessSess = sess
+				signAlgo = "ecdsa-p256"
+				br.Manifest.SignatureAlgo = &signAlgo
+				ts := time.Now().UTC().Format(time.RFC3339)
+				br.Manifest.SignedAt = &ts
+				canonical, err := bundle.CanonicalManifest(br.Manifest)
+				if err != nil {
+					return fmt.Errorf("canonicalize manifest: %w", err)
+				}
+				payloadHash, err := crypto.HashReader(bytes.NewReader(br.Ciphertext), "sha256")
+				if err != nil {
+					return fmt.Errorf("hash payload: %w", err)
+				}
+				sigMsg := crypto.BuildSigningMessage(canonical, payloadHash)
+				sig, err = crypto.SignMessage(sess.Signer, signAlgo, sigMsg)
+				if err != nil {
+					return fmt.Errorf("sign (keyless): %w", err)
+				}
+
+			case cmd.Flags().Changed("algo") && plugin.GlobalRegistry().SignAlgo(algo) != "":
 				signAlgo = algo
 				br.Manifest.SignatureAlgo = &signAlgo
 				ts := time.Now().UTC().Format(time.RFC3339)
@@ -95,7 +133,8 @@ func newSignCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("sign: %w", err)
 				}
-			} else {
+
+			default:
 				// Load signing key (auto-detects algorithm from key format).
 				privKey, detectedAlgo, err := crypto.LoadPrivateKey(signingPriv)
 				if err != nil {
@@ -139,15 +178,24 @@ func newSignCmd() *cobra.Command {
 				if !rekorSupportsAlgo(signAlgo) {
 					return fmt.Errorf("transparency log requires a Rekor-compatible signing algo (ed25519, ecdsa-p256/p384, rsa-pss-2048/4096); got %q", signAlgo)
 				}
-				// We re-load the signer just to obtain its public key. Plugin
-				// signers are not supported here because they don't expose a
-				// crypto.PublicKey we can PEM-encode.
 				if plugin.GlobalRegistry().SignAlgo(signAlgo) != "" {
 					return fmt.Errorf("transparency log not supported for plugin signer %q", signAlgo)
 				}
-				signer, _, err := crypto.LoadPrivateKey(signingPriv)
-				if err != nil {
-					return fmt.Errorf("re-load signing key for rekor: %w", err)
+				// Resolve the public key (or cert chain for keyless) that Rekor
+				// will store and use to verify the signature.
+				var pubKey crypto.PublicKey
+				var certChainPEM, identity, oidcIssuer string
+				if keylessSess != nil {
+					pubKey = &keylessSess.Signer.PublicKey
+					certChainPEM = keylessSess.ChainPEM
+					identity = keylessSess.Identity
+					oidcIssuer = keylessSess.Issuer
+				} else {
+					signer, _, err := crypto.LoadPrivateKey(signingPriv)
+					if err != nil {
+						return fmt.Errorf("re-load signing key for rekor: %w", err)
+					}
+					pubKey = crypto.PublicKeyOf(signer)
 				}
 				canonical, err := bundle.CanonicalManifest(br.Manifest)
 				if err != nil {
@@ -160,10 +208,13 @@ func newSignCmd() *cobra.Command {
 				sigMsg := crypto.BuildSigningMessage(canonical, payloadHash)
 				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 				entry, err := uploadToRekor(ctx, rekorUploadOpts{
-					RekorURL:   rekorURL,
-					PubKey:     crypto.PublicKeyOf(signer),
-					Signature:  sig,
-					SignedData: sigMsg,
+					RekorURL:     rekorURL,
+					PubKey:       pubKey,
+					Signature:    sig,
+					SignedData:   sigMsg,
+					CertChainPEM: certChainPEM,
+					Identity:     identity,
+					OIDCIssuer:   oidcIssuer,
 				})
 				cancel()
 				if err != nil {
