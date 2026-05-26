@@ -34,6 +34,7 @@ const (
 	OpRotateKey       = "rotate-key"
 	OpAddRecipient    = "add-recipient"
 	OpRemoveRecipient = "remove-recipient"
+	OpPolicyDeny      = "policy-deny"
 )
 
 // Entry is one JSON-lines record written to the audit log.

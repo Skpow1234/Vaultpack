@@ -31,6 +31,7 @@ type EffectiveConfig struct {
 	KmsProvider     string   `mapstructure:"kms_provider" json:"kms_provider,omitempty"`
 	KmsKeyID        string   `mapstructure:"kms_key_id" json:"kms_key_id,omitempty"`
 	PluginDir       string   `mapstructure:"plugin_dir" json:"plugin_dir,omitempty"`
+	PolicyFile      string   `mapstructure:"policy_file" json:"policy_file,omitempty"`
 }
 
 // Profile holds profile-specific overrides.

@@ -66,6 +66,10 @@ func newSignCmd() *cobra.Command {
 				return fmt.Errorf("read bundle: %w", err)
 			}
 
+			if err := enforcePolicy(audit.OpSign, displayName, br.Manifest); err != nil {
+				return err
+			}
+
 			var signAlgo string
 			var sig []byte
 

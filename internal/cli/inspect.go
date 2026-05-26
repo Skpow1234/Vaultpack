@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Skpow1234/Vaultpack/internal/audit"
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
 	"github.com/spf13/cobra"
 )
@@ -43,6 +44,10 @@ func newInspectCmd() *cobra.Command {
 			m, rawBytes, err := bundle.ReadManifestOnly(inFile)
 			if err != nil {
 				return fmt.Errorf("read manifest: %w", err)
+			}
+
+			if err := enforcePolicy(audit.OpInspect, displayName, m); err != nil {
+				return err
 			}
 
 			if redact {

@@ -667,7 +667,107 @@ vaultpack protect --in data.csv
 | `--audit-log` | Audit log file path        |
 | `--config`  | Config file path (or `VPACK_CONFIG` env) |
 | `--profile` | Config profile: dev, staging, prod (or `VPACK_PROFILE` env) |
+| `--policy`  | Policy file (YAML/JSON/Rego) enforced before ops (or `VAULTPACK_POLICY` env) |
 | `--version` | Print version                |
+
+### Policy & RBAC
+
+VaultPack can gate every operation (protect, decrypt, inspect, verify, sign,
+attest, rewrap, rotate-key, add/remove-recipient) through a policy file. The
+policy is resolved in this order: `--policy <path>` → `VAULTPACK_POLICY` env →
+`policy_file:` in `.vpack.yaml`. When no policy is configured, every operation
+runs as before.
+
+**YAML policy example** (`./policy.yaml`):
+
+```yaml
+version: 1
+default: allow            # what to do when no rule matches
+rules:
+  - name: block-dev-keys-in-prod
+    action: deny
+    reason: "dev KMS keys cannot be decrypted from prod"
+    when:
+      operation: [decrypt, rewrap]
+      kms_key_id_matches: ".*/dev-.*"
+
+  - name: deny-unsigned-decrypts
+    action: deny
+    reason: "decrypts require a signature"
+    when:
+      operation: [decrypt]
+      is_signed: false
+
+  - name: after-hours
+    action: deny
+    reason: "no decrypts between 00:00 and 06:00 UTC"
+    when:
+      operation: [decrypt]
+      time_window: {from: "00:00", to: "06:00", timezone: "UTC"}
+
+  - name: alice-only-prod-keys
+    action: allow
+    when:
+      operation: [decrypt]
+      user: alice
+      kms_key_id_matches: ".*/prod-.*"
+```
+
+Supported `when:` predicates (all ANDed within a rule):
+
+| Field                       | Description                                              |
+| --------------------------- | -------------------------------------------------------- |
+| `operation`                 | List of op names (`decrypt`, `verify`, …)                 |
+| `user` / `user_matches`     | Principal username (exact or regex)                      |
+| `hostname` / `hostname_matches` | Host (exact or regex)                                |
+| `weekday`                   | List of day names (`Saturday`, `Sunday`, …)              |
+| `time_window`               | `{from, to, timezone}` HH:MM range (wraps over midnight) |
+| `bundle_path_matches`       | Regex on the bundle path                                 |
+| `kms_key_id` / `kms_key_id_matches` | KMS Key ID exact or regex                        |
+| `cipher_in`                 | List of allowed AEAD names                               |
+| `hybrid_scheme_matches`     | Regex on the hybrid KEM scheme                           |
+| `signature_algo_in` / `signature_algo_not_in` | List of allowed/forbidden signature algos |
+| `is_signed`                 | Bool: rule fires only if signature presence matches      |
+| `recipient_fingerprint_in`  | List of recipient fingerprints                           |
+| `plaintext_digest_in`       | List of plaintext SHA-256 digests (base64)               |
+| `min_recipients` / `max_recipients` | Recipient-count bounds                            |
+
+**JSON** is supported too — just use a `.json` file with the same field names.
+
+**Rego (OPA)** is loaded automatically for `.rego` files. The package should
+expose an `allow` rule and an optional `deny_reason`:
+
+```rego
+package vaultpack
+
+default allow = false
+
+allow {
+    input.operation == "decrypt"
+    input.user == "alice"
+    startswith(input.manifest.kms_key_id, "arn:aws:kms:us-east-1:")
+}
+
+deny_reason = sprintf("user %q cannot decrypt %q", [input.user, input.manifest.kms_key_id]) {
+    not allow
+}
+```
+
+The Rego `input` mirrors the native context: `operation`, `user`, `hostname`,
+`bundle_path`, `weekday`, `now`, and (when available) a `manifest` object with
+`aead`, `kms_key_id`, `plaintext_digest`, `signature_algo`, `signed`,
+`hybrid_scheme`, `recipient_count`, `recipient_fingerprints`.
+
+**Policy commands:**
+
+```bash
+vaultpack policy validate --file policy.yaml
+vaultpack policy test     --file policy.yaml --bundle secret.vpack --op decrypt --user alice
+vaultpack policy show     --policy policy.yaml
+```
+
+Every policy denial is recorded in the audit log as a `policy-deny` entry with
+the offending operation, matched rule name, and reason.
 
 ## Bundle Format
 

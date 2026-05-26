@@ -70,6 +70,9 @@ The previous manifest signature is cleared; re-sign with 'vaultpack sign'.`,
 			if err != nil {
 				return fmt.Errorf("read bundle: %w", err)
 			}
+			if err := enforcePolicy(audit.OpRemoveRecipient, inFile, br.Manifest); err != nil {
+				return err
+			}
 			h := br.Manifest.Encryption.Hybrid
 			if h == nil || len(h.Recipients) == 0 {
 				return fmt.Errorf("bundle is not multi-recipient; nothing to remove")

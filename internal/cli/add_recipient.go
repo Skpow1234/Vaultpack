@@ -74,6 +74,9 @@ previous manifest signature is cleared; re-sign with 'vaultpack sign'.`,
 			if err != nil {
 				return fmt.Errorf("read bundle: %w", err)
 			}
+			if err := enforcePolicy(audit.OpAddRecipient, inFile, br.Manifest); err != nil {
+				return err
+			}
 			h := br.Manifest.Encryption.Hybrid
 			if h == nil {
 				return fmt.Errorf("bundle is not hybrid-encrypted; add-recipient requires --recipient at protect time")

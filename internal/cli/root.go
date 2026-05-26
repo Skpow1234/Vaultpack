@@ -6,6 +6,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/Skpow1234/Vaultpack/internal/config"
 	"github.com/Skpow1234/Vaultpack/internal/plugin"
+	"github.com/Skpow1234/Vaultpack/internal/policy"
 	"github.com/spf13/cobra"
 )
 
@@ -20,6 +21,7 @@ var (
 	flagAuditLog string
 	flagConfig  string
 	flagProfile string
+	flagPolicy  string
 	// effectiveAuditLogPath is set in PersistentPreRun from precedence: CLI > env > config.
 	effectiveAuditLogPath string
 )
@@ -55,6 +57,28 @@ func NewRootCmd() *cobra.Command {
 			if flagQuiet {
 				zerolog.SetGlobalLevel(zerolog.ErrorLevel)
 			}
+
+			// Policy resolution: --policy > VAULTPACK_POLICY env > config.policy_file.
+			policyPath := flagPolicy
+			if policyPath == "" {
+				policyPath = os.Getenv("VAULTPACK_POLICY")
+			}
+			if policyPath == "" {
+				if c := config.Get(); c != nil {
+					policyPath = c.PolicyFile
+				}
+			}
+			if policyPath != "" {
+				ev, err := policy.Load(policyPath)
+				if err != nil {
+					// Surface but don't crash the entire CLI; "fail-closed" would block
+					// emergency use. The error is logged so operators see it.
+					l := zerolog.New(os.Stderr)
+					l.Error().Err(err).Str("policy", policyPath).Msg("policy load failed; enforcement disabled")
+				} else {
+					policy.SetGlobal(ev)
+				}
+			}
 			// Plugin discovery: VPACK_PLUGIN_DIR or config plugin_dir.
 			pluginDir := os.Getenv(config.EnvPluginDir)
 			if pluginDir == "" && config.Get() != nil {
@@ -89,6 +113,9 @@ func NewRootCmd() *cobra.Command {
 	pf.StringVar(&flagConfig, "config", "", "Config file path (or VPACK_CONFIG env); default: ~/.vpack.yaml, ./.vpack.yaml")
 	pf.StringVar(&flagProfile, "profile", "", "Config profile: dev, staging, prod (or VPACK_PROFILE env)")
 
+	// Policy (M23).
+	pf.StringVar(&flagPolicy, "policy", "", "Policy file (YAML/JSON/Rego) to enforce before operations (or VAULTPACK_POLICY env)")
+
 	// Register subcommands.
 	root.AddCommand(newHashCmd())
 	root.AddCommand(newProtectCmd())
@@ -115,6 +142,8 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newRotateKeyCmd())
 	root.AddCommand(newAddRecipientCmd())
 	root.AddCommand(newRemoveRecipientCmd())
+	// M23: policy.
+	root.AddCommand(newPolicyCmd())
 
 	return root
 }

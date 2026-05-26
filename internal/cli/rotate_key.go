@@ -101,6 +101,10 @@ is preserved from the input unless overridden.`,
 				return fmt.Errorf("read bundle: %w", err)
 			}
 
+			if err := enforcePolicy(audit.OpRotateKey, inFile, br.Manifest); err != nil {
+				return err
+			}
+
 			// 1) Recover the old DEK from whichever credentials match the bundle's mode.
 			oldDEK, mode, err := recoverDEK(br.Manifest, oldKeyFile, oldPassword, oldPasswordFile, oldPrivKey, kmsProvider)
 			if err != nil {

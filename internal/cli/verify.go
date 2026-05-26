@@ -58,6 +58,10 @@ func newVerifyCmd() *cobra.Command {
 				return fmt.Errorf("read bundle: %w", err)
 			}
 
+			if err := enforcePolicy(audit.OpVerify, displayName, br.Manifest); err != nil {
+				return err
+			}
+
 			if br.Signature == nil {
 				auditLog(audit.OpVerify, inFile, "", "", "", false, "bundle is not signed")
 				printer.Error(util.ErrVerifyFailed, "bundle is not signed (no signature.sig)")

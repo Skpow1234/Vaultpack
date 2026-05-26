@@ -76,6 +76,9 @@ The new manifest invalidates any prior signature; re-sign with 'vaultpack sign'.
 			if err != nil {
 				return fmt.Errorf("read bundle: %w", err)
 			}
+			if err := enforcePolicy(audit.OpRewrap, inFile, br.Manifest); err != nil {
+				return err
+			}
 			if br.Manifest.Encryption.KmsKeyID == "" || br.Manifest.Encryption.KmsWrappedDEKB64 == "" {
 				return fmt.Errorf("bundle is not KMS-wrapped; use 'vaultpack rotate-key' to change key/mode")
 			}

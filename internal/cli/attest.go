@@ -45,6 +45,10 @@ func newAttestCmd() *cobra.Command {
 				return fmt.Errorf("read manifest: %w", err)
 			}
 
+			if err := enforcePolicy(audit.OpAttest, displayName, m); err != nil {
+				return err
+			}
+
 			// Bundle digest: SHA-256 of the bundle file (local path only).
 			bundleDigestHex := ""
 			if data, err := os.ReadFile(inFile); err == nil {

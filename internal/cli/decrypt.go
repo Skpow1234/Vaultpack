@@ -103,6 +103,11 @@ func newDecryptCmd() *cobra.Command {
 				return fmt.Errorf("read bundle: %w", err)
 			}
 
+			// M23: enforce policy *before* any DEK material is unwrapped.
+			if err := enforcePolicy(audit.OpDecrypt, inFile, br.Manifest); err != nil {
+				return err
+			}
+
 			bundleUsesKMS := br.Manifest.Encryption.KmsKeyID != "" && br.Manifest.Encryption.KmsWrappedDEKB64 != ""
 			if bundleUsesKMS && kmsProvider == "" && config.Get() != nil && config.Get().KmsProvider != "" {
 				kmsProvider = config.Get().KmsProvider

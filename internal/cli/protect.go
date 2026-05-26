@@ -146,6 +146,13 @@ func newProtectCmd() *cobra.Command {
 				password = strings.TrimRight(string(pwData), "\r\n")
 			}
 
+			// M23: enforce policy at the principal/time-of-day level before any
+			// plaintext is read. (Bundle-property predicates obviously don't apply
+			// to protect since the manifest doesn't exist yet.)
+			if err := enforcePolicy(audit.OpProtect, inFile, nil); err != nil {
+				return err
+			}
+
 			// Validate KDF algorithm.
 			if usePassword && !crypto.SupportedKDF(kdfAlgo) {
 				return fmt.Errorf("unsupported KDF %q; supported: argon2id, scrypt, pbkdf2-sha256", kdfAlgo)
