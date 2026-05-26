@@ -280,6 +280,14 @@ vaultpack inspect --in <bundle> [--json]
 
 Displays the manifest: version, input file info, hash, encryption parameters, and key fingerprint. Use `--json` for machine-readable output.
 
+### `diff` -- Compare two bundles' manifests
+
+```bash
+vaultpack diff --a <bundle1> --b <bundle2> [--ignore-time] [--ignore-nonce] [--json]
+```
+
+Compares the two manifests field-by-field (plaintext hash, AEAD, key ID, scheme, recipients, signature, etc.). Exit code is **0** when the manifests are identical and **10** when differences are found. Use `--ignore-time` to skip `created_at` / `signed_at` and `--ignore-nonce` to skip per-encryption values (nonce, tag, ephemeral key, wrapped DEK) — useful when comparing two protections of the same plaintext.
+
 ### `hash` -- Compute a file hash
 
 ```bash
