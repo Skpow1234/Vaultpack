@@ -277,10 +277,10 @@ Provide exactly one of `--key`, `--password`, `--privkey`, or `--kms-provider` (
 ### `inspect` -- Show bundle metadata
 
 ```bash
-vaultpack inspect --in <bundle> [--json]
+vaultpack inspect --in <bundle> [--json] [--redact]
 ```
 
-Displays the manifest: version, input file info, hash, encryption parameters, and key fingerprint. Use `--json` for machine-readable output.
+Displays the manifest: version, input file info, hash, encryption parameters, and key fingerprint. Use `--json` for machine-readable output. Use `--redact` to omit sensitive fields (plaintext digest, nonces, tags, key IDs, recipient fingerprints, wrapped DEKs, KDF salt, etc.) so the output is safe to share for support or audit.
 
 ### `diff` -- Compare two bundles' manifests
 
