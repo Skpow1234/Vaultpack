@@ -19,7 +19,7 @@ func newKeygenCmd() *cobra.Command {
 		Use:   "keygen",
 		Short: "Generate a key pair",
 		Long: "Generate a new key pair for signing, verifying, or hybrid encryption.\n\n" +
-			"Signing algorithms: ed25519 (default), ed448, ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096, ml-dsa-65, ml-dsa-87.\n" +
+			"Signing algorithms: ed25519 (default), ed448, ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096, ml-dsa-65, ml-dsa-87, slh-dsa-128s.\n" +
 			"Hybrid encryption: x25519, ecies-p256, rsa-oaep-2048, rsa-oaep-4096, ml-kem-768, ml-kem-1024.\n" +
 			"Plugin schemes from VPACK_PLUGIN_DIR (or config plugin_dir) are added to --algo; see docs/plugins.md.",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -77,7 +77,7 @@ func newKeygenCmd() *cobra.Command {
 					return fmt.Errorf("generate key pair: %w", err)
 				}
 			} else {
-				return fmt.Errorf("unsupported algorithm %q; signing: ed25519, ed448, ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096, ml-dsa-65, ml-dsa-87; encryption: x25519, ecies-p256, rsa-oaep-2048, rsa-oaep-4096, ml-kem-768, ml-kem-1024 (or plugin schemes)", algo)
+				return fmt.Errorf("unsupported algorithm %q; signing: ed25519, ed448, ecdsa-p256, ecdsa-p384, rsa-pss-2048, rsa-pss-4096, ml-dsa-65, ml-dsa-87, slh-dsa-128s; encryption: x25519, ecies-p256, rsa-oaep-2048, rsa-oaep-4096, ml-kem-768, ml-kem-1024 (or plugin schemes)", algo)
 			}
 
 			switch printer.Mode {

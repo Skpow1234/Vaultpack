@@ -27,6 +27,7 @@ const (
 	SignAlgoRSAPSS4096 = "rsa-pss-4096"
 	SignAlgoMLDSA65    = "ml-dsa-65"
 	SignAlgoMLDSA87    = "ml-dsa-87"
+	SignAlgoSLHDSA128s = "slh-dsa-128s"
 )
 
 // SupportedSignAlgos is the list of supported signing algorithm names.
@@ -39,6 +40,7 @@ var SupportedSignAlgos = []string{
 	SignAlgoRSAPSS4096,
 	SignAlgoMLDSA65,
 	SignAlgoMLDSA87,
+	SignAlgoSLHDSA128s,
 }
 
 // SupportedSignAlgo checks whether the given signing algorithm is supported.
@@ -88,6 +90,9 @@ func GenerateSigningKeys(algo string) (privPEM, pubPEM []byte, err error) {
 
 	case SignAlgoEd448:
 		return GenerateEd448Keys()
+
+	case SignAlgoSLHDSA128s:
+		return GenerateSLHDSAKeys(algo)
 
 	default:
 		return nil, nil, fmt.Errorf("unsupported signing algorithm %q", algo)
@@ -195,6 +200,10 @@ func LoadPrivateKey(path string) (crypto.Signer, string, error) {
 		return ed, SignAlgoEd448, nil
 	}
 
+	if slh, _ := ParseSLHDSAPrivateKeyPEM(block); slh != nil {
+		return slh, SignAlgoSLHDSA128s, nil
+	}
+
 	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
 		return nil, "", fmt.Errorf("parse private key: %w", err)
@@ -263,6 +272,10 @@ func LoadAnyPublicKey(path string) (crypto.PublicKey, string, error) {
 
 	if ed, _ := ParseEd448PublicKeyPEM(block); ed != nil {
 		return ed, SignAlgoEd448, nil
+	}
+
+	if slh, _ := ParseSLHDSAPublicKeyPEM(block); slh != nil {
+		return slh, SignAlgoSLHDSA128s, nil
 	}
 
 	key, err := x509.ParsePKIXPublicKey(block.Bytes)
@@ -339,6 +352,13 @@ func SignMessage(signer crypto.Signer, algo string, message []byte) ([]byte, err
 		}
 		return ed.Sign(nil, message, nil)
 
+	case SignAlgoSLHDSA128s:
+		slh, ok := signer.(*SLHDSASigner)
+		if !ok {
+			return nil, fmt.Errorf("key type mismatch: expected SLH-DSA signer, got %T", signer)
+		}
+		return slh.Scheme.Sign(slh.Key, message, nil), nil
+
 	default:
 		return nil, fmt.Errorf("unsupported signing algorithm %q", algo)
 	}
@@ -388,6 +408,13 @@ func VerifySignature(pubKey crypto.PublicKey, algo string, message, sig []byte) 
 			return false, fmt.Errorf("key type mismatch: expected ed448 public key, got %T", pubKey)
 		}
 		return VerifyEd448(ed, message, sig), nil
+
+	case SignAlgoSLHDSA128s:
+		slh, ok := pubKey.(*SLHDSAPublicKey)
+		if !ok {
+			return false, fmt.Errorf("key type mismatch: expected SLH-DSA public key, got %T", pubKey)
+		}
+		return VerifySLHDSA(slh, message, sig), nil
 
 	default:
 		return false, fmt.Errorf("unsupported signing algorithm %q", algo)
