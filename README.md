@@ -832,6 +832,113 @@ vaultpack policy show     --policy policy.yaml
 Every policy denial is recorded in the audit log as a `policy-deny` entry with
 the offending operation, matched rule name, and reason.
 
+## SDK & Language Bindings
+
+VaultPack ships with first-class libraries for Go, Python, and JavaScript so
+you can encrypt, decrypt, sign, verify, and inspect `.vpack` bundles
+programmatically without spawning the CLI.
+
+### Go SDK (`pkg/vaultpack`)
+
+The Go SDK is **semver-stable** (current version `vaultpack.Version`) and
+re-exports the same bundle/manifest types the CLI uses, so JSON shapes
+match byte-for-byte.
+
+```go
+import "github.com/Skpow1234/Vaultpack/pkg/vaultpack"
+
+// Encrypt with a generated key.
+res, err := vaultpack.Protect(vaultpack.ProtectOptions{
+    InputPath:  "secret.txt",
+    OutputPath: "secret.vpack",
+})
+if err != nil { log.Fatal(err) }
+os.WriteFile("secret.key", res.GeneratedKey, 0o600)
+
+// Decrypt.
+dec, err := vaultpack.Decrypt(vaultpack.DecryptOptions{
+    InputPath:  "secret.vpack",
+    OutputPath: "secret.out",
+    Key:        keyBytes,
+})
+```
+
+| Function                                  | Purpose                              |
+|-------------------------------------------|--------------------------------------|
+| `Protect(opts) (*ProtectResult, error)`   | Encrypt file or `[]byte` → bundle    |
+| `Decrypt(opts) (*DecryptResult, error)`   | Decrypt bundle → file or `[]byte`    |
+| `Inspect(path) (*Manifest, error)`        | Decode manifest only                 |
+| `InspectBytes(b) (*Manifest, error)`      | In-memory manifest decode            |
+| `SignBundle(opts) (*SignResult, error)`   | Add/replace detached signature       |
+| `SignBytes(b, opts) ([]byte, *SignResult, error)` | In-memory variant            |
+| `Verify(opts) (*VerifyResult, error)`     | Verify detached signature            |
+| `VerifyBytes(b, opts) (*VerifyResult, error)`     | In-memory variant            |
+
+Supported modes in v0.1: symmetric key (auto-generated or supplied),
+password (argon2id / scrypt / pbkdf2), and detached signatures (ed25519 /
+ecdsa / rsa-pss / ml-dsa / slh-dsa). Hybrid (recipient) encryption, KMS
+wrapping, key splitting, compression, and Sigstore transparency uploads
+remain CLI-only for now and will be added in future minor releases.
+
+### Native shared library (C-shared)
+
+`cmd/vaultpack-c` builds VaultPack as a `libvaultpack.{so,dylib,dll}`
+exposing a tiny JSON-in/JSON-out C ABI usable from any language with a C
+FFI. Build:
+
+```bash
+go build -buildmode=c-shared -tags cshared \
+  -o libvaultpack.so ./cmd/vaultpack-c
+```
+
+The `cshared` build tag excludes the package from default `go build ./...`
+runs so the rest of the repo continues to build without cgo or a C
+toolchain. See `cmd/vaultpack-c/README.md` for the full per-OS reference.
+
+### Python (`bindings/python`)
+
+```bash
+pip install vaultpack          # ships with no native code
+export VAULTPACK_LIB=/path/to/libvaultpack.so
+```
+
+```python
+import base64, vaultpack
+res = vaultpack.protect(input_path="secret.txt", output_path="secret.vpack")
+key = base64.b64decode(res["generated_key_b64"])
+out = vaultpack.decrypt(input_path="secret.vpack", key=key)
+print(out["manifest"]["input"]["name"])
+```
+
+### TypeScript / WebAssembly (`bindings/typescript`)
+
+```bash
+# Build the WASM artifact (Go 1.22+).
+GOOS=js GOARCH=wasm go build -o vaultpack.wasm ./cmd/vaultpack-wasm
+cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" bindings/typescript/
+```
+
+```javascript
+import { loadVaultpack } from "@vaultpack/wasm";
+const Vaultpack = await loadVaultpack(
+  new URL("./vaultpack.wasm", import.meta.url),
+);
+const enc = Vaultpack.protect({ plaintext: new TextEncoder().encode("hi") });
+const dec = Vaultpack.decrypt({ bundle: enc.bundle, key: enc.generatedKey });
+console.log(new TextDecoder().decode(dec.plaintext));
+```
+
+The full TypeScript surface lives in `bindings/typescript/vaultpack.d.ts`.
+
+### Semver policy
+
+The public Go SDK at `pkg/vaultpack/` and the `.vpack` on-disk format
+follow [Semantic Versioning 2.0.0](https://semver.org/). New fields with
+`omitempty` and new option values whose default matches today's behavior
+are minor-release additions; renames, removals, and behavior changes
+require a major bump. Internal packages (`internal/...`) are not covered
+by this guarantee.
+
 ## Bundle Format
 
 A `.vpack` file is a ZIP archive containing:
