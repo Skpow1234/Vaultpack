@@ -50,7 +50,7 @@ func newProtectCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "protect",
 		Short: "Encrypt a file into a .vpack bundle",
-		Long:  "Hash the plaintext, optionally compress, encrypt with an AEAD cipher, and write a portable .vpack bundle.\n\nSupported ciphers: aes-256-gcm (default), chacha20-poly1305, xchacha20-poly1305.\nCompression: --compress gzip|zstd (default: none).\nMultiple recipients: --recipient alice.pem --recipient bob.pem.\nKey splitting: --split-shares 5 --split-threshold 3 (Shamir SSS).\n\nAzure: use az://container/blob paths for --in and/or --out.\n\nUse --stdin to read from standard input and --stdout to write the bundle to standard output.",
+		Long:  "Hash the plaintext, optionally compress, encrypt with an AEAD cipher, and write a portable .vpack bundle.\n\nSupported ciphers: aes-256-gcm (default), chacha20-poly1305, xchacha20-poly1305, aes-256-gcm-siv.\nCompression: --compress gzip|zstd (default: none).\nMultiple recipients: --recipient alice.pem --recipient bob.pem.\nKey splitting: --split-shares 5 --split-threshold 3 (Shamir SSS).\n\nAzure: use az://container/blob paths for --in and/or --out.\n\nUse --stdin to read from standard input and --stdout to write the bundle to standard output.",
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			printer := NewPrinter(flagJSON, flagQuiet)
 			var auditOutDesc, auditKeyFP string
@@ -79,7 +79,7 @@ func newProtectCmd() *cobra.Command {
 				return fmt.Errorf("unsupported hash algorithm %q; supported: sha256, sha512, sha3-256, sha3-512, blake2b-256, blake2b-512, blake3", hashAlgo)
 			}
 			if !crypto.SupportedCipher(cipherName) {
-				return fmt.Errorf("unsupported cipher %q; supported: aes-256-gcm, chacha20-poly1305, xchacha20-poly1305", cipherName)
+				return fmt.Errorf("unsupported cipher %q; supported: aes-256-gcm, chacha20-poly1305, xchacha20-poly1305, aes-256-gcm-siv", cipherName)
 			}
 
 			// Validate compression algorithm.
@@ -799,7 +799,7 @@ func newProtectCmd() *cobra.Command {
 	cmd.Flags().StringVar(&keyFile, "key", "", "path to an existing key (skips key generation)")
 	cmd.Flags().StringVar(&aadStr, "aad", "", "additional authenticated data (e.g. 'env=prod,app=payments')")
 	cmd.Flags().StringVar(&hashAlgo, "hash-algo", "sha256", "hash algorithm for plaintext: sha256, sha512, sha3-256, sha3-512, blake2b-256, blake2b-512, blake3")
-	cmd.Flags().StringVar(&cipherName, "cipher", crypto.CipherAES256GCM, "AEAD cipher: aes-256-gcm, chacha20-poly1305, xchacha20-poly1305")
+	cmd.Flags().StringVar(&cipherName, "cipher", crypto.CipherAES256GCM, "AEAD cipher: aes-256-gcm, chacha20-poly1305, xchacha20-poly1305, aes-256-gcm-siv (nonce-misuse-resistant)")
 	cmd.Flags().BoolVar(&signFlag, "sign", false, "sign the bundle")
 	cmd.Flags().StringVar(&signingPriv, "signing-priv", "", "path to private signing key (required with --sign)")
 	cmd.Flags().StringVar(&signAlgo, "sign-algo", "", "signing algorithm (auto-detected from key if omitted)")

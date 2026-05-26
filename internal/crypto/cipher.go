@@ -6,13 +6,16 @@ import (
 	"fmt"
 
 	"golang.org/x/crypto/chacha20poly1305"
+
+	"github.com/Skpow1234/Vaultpack/internal/crypto/aesgcmsiv"
 )
 
 // Supported AEAD cipher names.
 const (
-	CipherAES256GCM           = "aes-256-gcm"
-	CipherChaCha20Poly1305    = "chacha20-poly1305"
-	CipherXChaCha20Poly1305   = "xchacha20-poly1305"
+	CipherAES256GCM         = "aes-256-gcm"
+	CipherChaCha20Poly1305  = "chacha20-poly1305"
+	CipherXChaCha20Poly1305 = "xchacha20-poly1305"
+	CipherAES256GCMSIV      = "aes-256-gcm-siv"
 )
 
 // AES256KeySize is the required key size for all supported ciphers (32 bytes).
@@ -23,6 +26,7 @@ var SupportedCiphers = []string{
 	CipherAES256GCM,
 	CipherChaCha20Poly1305,
 	CipherXChaCha20Poly1305,
+	CipherAES256GCMSIV,
 }
 
 // CipherInfo describes the parameters of a supported AEAD cipher.
@@ -49,9 +53,15 @@ var cipherRegistry = map[string]CipherInfo{
 	},
 	CipherXChaCha20Poly1305: {
 		Name:      CipherXChaCha20Poly1305,
-		KeySize:   chacha20poly1305.KeySize,           // 32
-		NonceSize: chacha20poly1305.NonceSizeX,        // 24
-		TagSize:   16,                                 // Poly1305 tag
+		KeySize:   chacha20poly1305.KeySize,    // 32
+		NonceSize: chacha20poly1305.NonceSizeX, // 24
+		TagSize:   16,                           // Poly1305 tag
+	},
+	CipherAES256GCMSIV: {
+		Name:      CipherAES256GCMSIV,
+		KeySize:   32,
+		NonceSize: aesgcmsiv.NonceSize, // 12
+		TagSize:   aesgcmsiv.TagSize,   // 16
 	},
 }
 
@@ -93,6 +103,9 @@ func NewAEAD(name string, key []byte) (cipher.AEAD, error) {
 
 	case CipherXChaCha20Poly1305:
 		return chacha20poly1305.NewX(key)
+
+	case CipherAES256GCMSIV:
+		return aesgcmsiv.New(key)
 
 	default:
 		return nil, fmt.Errorf("unsupported cipher %q", name)
