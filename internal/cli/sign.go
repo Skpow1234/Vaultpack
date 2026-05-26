@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	stdcrypto "crypto"
 	"fmt"
 	"os"
 	"time"
@@ -183,7 +184,7 @@ func newSignCmd() *cobra.Command {
 				}
 				// Resolve the public key (or cert chain for keyless) that Rekor
 				// will store and use to verify the signature.
-				var pubKey crypto.PublicKey
+				var pubKey stdcrypto.PublicKey
 				var certChainPEM, identity, oidcIssuer string
 				if keylessSess != nil {
 					pubKey = &keylessSess.Signer.PublicKey
@@ -286,6 +287,9 @@ func newSignCmd() *cobra.Command {
 	cmd.Flags().StringVar(&algo, "algo", "", "signing algorithm (auto-detected from key if omitted)")
 	cmd.Flags().BoolVar(&useTransparency, "transparency", false, "upload the signature to a Sigstore Rekor transparency log")
 	cmd.Flags().StringVar(&rekorURL, "rekor-url", "", "Rekor base URL (defaults to https://rekor.sigstore.dev)")
+	cmd.Flags().BoolVar(&keyless, "keyless", false, "use ephemeral key + Fulcio cert (requires --transparency and an OIDC token)")
+	cmd.Flags().StringVar(&fulcioURL, "fulcio-url", "", "Fulcio base URL (defaults to https://fulcio.sigstore.dev)")
+	cmd.Flags().StringVar(&oidcTokenFile, "oidc-token-file", "", "path to a file containing an OIDC ID token (or VAULTPACK_OIDC_TOKEN / SIGSTORE_ID_TOKEN env)")
 
 	return cmd
 }

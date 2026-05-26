@@ -6,10 +6,12 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
 	"github.com/Skpow1234/Vaultpack/internal/transparency"
@@ -271,6 +274,150 @@ func TestVerify_TransparencyMismatchFails(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "SET signature invalid") && !strings.Contains(err.Error(), "transparency entry") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// newMockFulcioServer returns an in-process Fulcio that issues a real
+// X.509 cert signed by a freshly-generated CA. Verifiers can chase the chain
+// up to the CA via the standard library.
+type mockFulcioServer struct {
+	*httptest.Server
+	caKey *ecdsa.PrivateKey
+	caDER []byte
+}
+
+func newMockFulcioServer(t *testing.T) *mockFulcioServer {
+	t.Helper()
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caTmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "mock-fulcio-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &mockFulcioServer{caKey: caKey, caDER: caDER}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/signingCert", func(w http.ResponseWriter, r *http.Request) {
+		var req transparency.SigningCertRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		block, _ := pem.Decode([]byte(req.PublicKeyRequest.PublicKey.Content))
+		if block == nil {
+			http.Error(w, "no PEM block", http.StatusBadRequest)
+			return
+		}
+		pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		leafTmpl := &x509.Certificate{
+			SerialNumber: big.NewInt(2),
+			Subject:      pkix.Name{CommonName: "vaultpack-test"},
+			NotBefore:    time.Now().Add(-time.Minute),
+			NotAfter:     time.Now().Add(time.Hour),
+			KeyUsage:     x509.KeyUsageDigitalSignature,
+			ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+		}
+		caParsed, _ := x509.ParseCertificate(m.caDER)
+		leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, caParsed, pub, m.caKey)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		leafPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER}))
+		caPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: m.caDER}))
+		resp := transparency.SigningCertResponse{
+			SignedCertificateEmbeddedSct: &transparency.SignedCertificate{
+				Chain: transparency.Chain{Certificates: []string{leafPEM, caPEM}},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	})
+	m.Server = httptest.NewServer(mux)
+	t.Cleanup(m.Server.Close)
+	return m
+}
+
+// craftOIDCToken builds an unsigned JWT containing the supplied claims. Fulcio
+// (real one) verifies the signature; our mock just reads the body.
+func craftOIDCToken(t *testing.T, email, issuer string) string {
+	t.Helper()
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	body, _ := json.Marshal(map[string]any{
+		"email": email,
+		"iss":   issuer,
+		"sub":   email,
+	})
+	return header + "." + base64.RawURLEncoding.EncodeToString(body) + ".sig"
+}
+
+func TestSign_Keyless_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	in := filepath.Join(dir, "secret.txt")
+	bundleFile := filepath.Join(dir, "secret.vpack")
+	dataKey := filepath.Join(dir, "secret.key")
+	os.WriteFile(in, []byte("keyless-roundtrip"), 0o600)
+
+	rekor := newMockRekorServer(t)
+	fulcio := newMockFulcioServer(t)
+	pubPEMFile := filepath.Join(dir, "rekor-pub.pem")
+	os.WriteFile(pubPEMFile, rekor.pubPEM, 0o600)
+
+	tokenFile := filepath.Join(dir, "token.jwt")
+	tok := craftOIDCToken(t, "ci@example.com", "https://issuer.example")
+	os.WriteFile(tokenFile, []byte(tok), 0o600)
+
+	cmd := NewRootCmd()
+	cmd.SetArgs([]string{"protect", "--in", in, "--out", bundleFile, "--key-out", dataKey})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("protect: %v", err)
+	}
+
+	cmd = NewRootCmd()
+	cmd.SetArgs([]string{
+		"sign", "--in", bundleFile,
+		"--keyless",
+		"--transparency",
+		"--rekor-url", rekor.URL,
+		"--fulcio-url", fulcio.URL,
+		"--oidc-token-file", tokenFile,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("sign --keyless: %v", err)
+	}
+	br, err := bundle.Read(bundleFile)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(br.Manifest.Transparency) != 1 {
+		t.Fatalf("expected 1 transparency entry, got %d", len(br.Manifest.Transparency))
+	}
+	te := br.Manifest.Transparency[0]
+	if te.Identity != "ci@example.com" {
+		t.Errorf("identity: %q", te.Identity)
+	}
+	if te.OIDCIssuer != "https://issuer.example" {
+		t.Errorf("issuer: %q", te.OIDCIssuer)
+	}
+	if !strings.Contains(te.CertChainPEM, "BEGIN CERTIFICATE") {
+		t.Error("cert chain missing")
+	}
+	if br.Manifest.SignatureAlgo == nil || *br.Manifest.SignatureAlgo != "ecdsa-p256" {
+		t.Errorf("expected ecdsa-p256 algo, got %v", br.Manifest.SignatureAlgo)
 	}
 }
 
