@@ -670,6 +670,69 @@ vaultpack protect --in data.csv
 | `--policy`  | Policy file (YAML/JSON/Rego) enforced before ops (or `VAULTPACK_POLICY` env) |
 | `--version` | Print version                |
 
+**Transparency flags** (`sign`, `verify`, `attest`):
+
+| Flag                    | Description                                                  |
+| ----------------------- | ------------------------------------------------------------ |
+| `--transparency`        | Upload signature to a Rekor transparency log                 |
+| `--rekor-url`           | Rekor base URL (defaults to `https://rekor.sigstore.dev`)    |
+| `--keyless`             | Use Fulcio for keyless signing (sign only; requires `--transparency`) |
+| `--fulcio-url`          | Fulcio base URL (defaults to `https://fulcio.sigstore.dev`)  |
+| `--oidc-token-file`     | Path to OIDC ID token file (or `VAULTPACK_OIDC_TOKEN` / `SIGSTORE_ID_TOKEN` env) |
+| `--check-transparency`  | Verify Rekor inclusion + SET signature during `verify`       |
+| `--rekor-pubkey`        | PEM-encoded Rekor public key (offline verify)                |
+
+### Transparency & Public Verifiability (Sigstore)
+
+VaultPack can upload bundle signatures to a [Sigstore Rekor](https://docs.sigstore.dev/logging/overview/) transparency log, giving every signed bundle a publicly-auditable, tamper-evident record. The Rekor metadata is embedded in the manifest so verifiers can validate the inclusion proof offline against a copy of Rekor's public key.
+
+**Sign with a personal key + Rekor:**
+
+```bash
+vaultpack sign --in artifact.vpack --signing-priv id.key \
+  --transparency \
+  --rekor-url https://rekor.sigstore.dev    # default if omitted
+```
+
+**Sign keyless via Fulcio (OIDC):**
+
+```bash
+# Acquire an OIDC ID token (CI workloads usually mount one automatically;
+# locally you can use `gh auth token`, `gcloud auth print-identity-token`, etc.)
+export SIGSTORE_ID_TOKEN=$(cat my-oidc.jwt)
+
+vaultpack sign --in artifact.vpack \
+  --keyless \
+  --transparency \
+  --rekor-url https://rekor.sigstore.dev \
+  --fulcio-url https://fulcio.sigstore.dev
+```
+
+Keyless mode generates a fresh ECDSA P-256 keypair, presents it to Fulcio along with the OIDC token, receives a short-lived signing certificate, signs the bundle with the ephemeral key, and uploads the signature + cert chain to Rekor.
+
+**Verify with transparency:**
+
+```bash
+vaultpack verify --in artifact.vpack --pubkey id.pub \
+  --check-transparency                              # online: fetches Rekor pubkey
+# or, fully offline:
+vaultpack verify --in artifact.vpack --pubkey id.pub \
+  --check-transparency \
+  --rekor-pubkey rekor.pub
+```
+
+The verifier checks that:
+
+1. The bundle's existing detached signature is valid against `--pubkey`.
+2. For each `transparency` entry in the manifest:
+   - The Rekor-stored data hash equals SHA-256 of the canonical signing message we just rebuilt.
+   - The Rekor-stored signature equals the bundle's `signature.sig` byte-for-byte.
+   - The Rekor SET (Signed Entry Timestamp) is a valid signature by the log's published key.
+
+**Algorithm support:** Rekor verifies signatures server-side using stdlib `crypto/x509`. VaultPack therefore restricts `--transparency` to `ed25519`, `ecdsa-p256`, `ecdsa-p384`, `rsa-pss-2048`, and `rsa-pss-4096`. Post-quantum algos (`ml-dsa-*`, `slh-dsa-*`, `ed448`) are rejected with a clear error.
+
+`attest --transparency` mirrors the flow for the SLSA provenance artifact: VaultPack signs `provenance.json` with the supplied key and uploads a hashedrekord entry; the Rekor UUID is printed but is *not* embedded in the manifest (use `sign --transparency` for that).
+
 ### Policy & RBAC
 
 VaultPack can gate every operation (protect, decrypt, inspect, verify, sign,
