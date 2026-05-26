@@ -16,6 +16,7 @@ vaultpack protect --in config.json
 # Encrypt with ChaCha20-Poly1305 or XChaCha20-Poly1305
 vaultpack protect --in config.json --cipher chacha20-poly1305
 vaultpack protect --in config.json --cipher xchacha20-poly1305
+vaultpack protect --in config.json --cipher aes-256-gcm-siv
 
 # Encrypt with a password instead of a key file
 vaultpack protect --in config.json --password "my-secret-passphrase"
@@ -247,6 +248,7 @@ Supported ciphers (all use 32-byte keys and chunked streaming with 64 KB chunks)
 | `aes-256-gcm` (default) | 12 B | NIST standard, hardware-accelerated on most CPUs |
 | `chacha20-poly1305` | 12 B | Excellent software performance, constant-time |
 | `xchacha20-poly1305` | 24 B | Extended nonce eliminates nonce-reuse risk |
+| `aes-256-gcm-siv` | 12 B | Nonce-misuse-resistant AEAD (RFC 8452); safer when nonce uniqueness can't be guaranteed |
 
 Decryption auto-detects the cipher from the bundle manifest.
 
