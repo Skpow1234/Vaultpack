@@ -68,6 +68,38 @@ func TestEncryptStreamParallel_MatchesSequential(t *testing.T) {
 	}
 }
 
+func TestDecryptStreamParallel_RoundTrip(t *testing.T) {
+	key := make([]byte, 32)
+	rand.Read(key)
+	aad := []byte("ad")
+
+	sizes := []int{0, 1, DefaultChunkSize, 5 * DefaultChunkSize, 10*DefaultChunkSize + 17}
+	ciphers := []string{CipherAES256GCM, CipherChaCha20Poly1305, CipherXChaCha20Poly1305, CipherAES256GCMSIV}
+	for _, c := range ciphers {
+		for _, sz := range sizes {
+			for _, workers := range []int{2, 4} {
+				name := "decpar/" + c + "/" + itoa(sz) + "B/w=" + itoa(workers)
+				t.Run(name, func(t *testing.T) {
+					pt := make([]byte, sz)
+					rand.Read(pt)
+					var ct bytes.Buffer
+					res, err := EncryptStream(bytes.NewReader(pt), &ct, key, aad, DefaultChunkSize, c)
+					if err != nil {
+						t.Fatal(err)
+					}
+					var got bytes.Buffer
+					if err := DecryptStreamParallel(&ct, &got, key, res.BaseNonce, aad, DefaultChunkSize, c, workers); err != nil {
+						t.Fatalf("DecryptStreamParallel: %v", err)
+					}
+					if !bytes.Equal(got.Bytes(), pt) {
+						t.Errorf("roundtrip mismatch")
+					}
+				})
+			}
+		}
+	}
+}
+
 func itoa(i int) string {
 	if i == 0 {
 		return "0"

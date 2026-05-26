@@ -45,6 +45,7 @@ func newProtectCmd() *cobra.Command {
 		splitThreshold  int
 		kmsProvider     string
 		kmsKeyID        string
+		parallelWorkers int
 	)
 
 	cmd := &cobra.Command{
@@ -529,11 +530,18 @@ func newProtectCmd() *cobra.Command {
 				chunkSize = c.ChunkSize
 			}
 
-			// Encrypt using chunked streaming.
+			// Encrypt using chunked streaming (optionally parallel).
 			var ciphertextBuf bytes.Buffer
-			streamResult, err := crypto.EncryptStream(
-				&plaintextBuf, &ciphertextBuf, key, aad, chunkSize, cipherName,
-			)
+			var streamResult *crypto.StreamEncryptResult
+			if parallelWorkers > 1 || parallelWorkers == 0 && os.Getenv("VPACK_PARALLEL_WORKERS") == "auto" {
+				streamResult, err = crypto.EncryptStreamParallel(
+					&plaintextBuf, &ciphertextBuf, key, aad, chunkSize, cipherName, parallelWorkers,
+				)
+			} else {
+				streamResult, err = crypto.EncryptStream(
+					&plaintextBuf, &ciphertextBuf, key, aad, chunkSize, cipherName,
+				)
+			}
 			if err != nil {
 				return fmt.Errorf("encrypt: %w", err)
 			}
@@ -800,6 +808,7 @@ func newProtectCmd() *cobra.Command {
 	cmd.Flags().StringVar(&aadStr, "aad", "", "additional authenticated data (e.g. 'env=prod,app=payments')")
 	cmd.Flags().StringVar(&hashAlgo, "hash-algo", "sha256", "hash algorithm for plaintext: sha256, sha512, sha3-256, sha3-512, blake2b-256, blake2b-512, blake3")
 	cmd.Flags().StringVar(&cipherName, "cipher", crypto.CipherAES256GCM, "AEAD cipher: aes-256-gcm, chacha20-poly1305, xchacha20-poly1305, aes-256-gcm-siv (nonce-misuse-resistant)")
+	cmd.Flags().IntVar(&parallelWorkers, "parallel-workers", 1, "encrypt chunks in parallel using N goroutines (0 = NumCPU, 1 = sequential)")
 	cmd.Flags().BoolVar(&signFlag, "sign", false, "sign the bundle")
 	cmd.Flags().StringVar(&signingPriv, "signing-priv", "", "path to private signing key (required with --sign)")
 	cmd.Flags().StringVar(&signAlgo, "sign-algo", "", "signing algorithm (auto-detected from key if omitted)")

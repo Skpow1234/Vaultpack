@@ -26,8 +26,9 @@ func newDecryptCmd() *cobra.Command {
 		useStdout    bool
 		password     string
 		passwordFile string
-		privKeyFile  string
-		kmsProvider  string
+		privKeyFile     string
+		kmsProvider     string
+		parallelWorkers int
 	)
 
 	cmd := &cobra.Command{
@@ -291,13 +292,23 @@ func newDecryptCmd() *cobra.Command {
 				}
 
 				var plaintextBuf bytes.Buffer
-				err = crypto.DecryptStream(
-					bytes.NewReader(br.Ciphertext),
-					&plaintextBuf,
-					key, baseNonce, aad,
-					*br.Manifest.Encryption.ChunkSize,
-					cipherName,
-				)
+				if parallelWorkers > 1 || parallelWorkers == 0 && os.Getenv("VPACK_PARALLEL_WORKERS") == "auto" {
+					err = crypto.DecryptStreamParallel(
+						bytes.NewReader(br.Ciphertext),
+						&plaintextBuf,
+						key, baseNonce, aad,
+						*br.Manifest.Encryption.ChunkSize,
+						cipherName, parallelWorkers,
+					)
+				} else {
+					err = crypto.DecryptStream(
+						bytes.NewReader(br.Ciphertext),
+						&plaintextBuf,
+						key, baseNonce, aad,
+						*br.Manifest.Encryption.ChunkSize,
+						cipherName,
+					)
+				}
 				if err != nil {
 					printer.Error(err, "decryption failed")
 					os.Exit(util.ExitDecryptFailed)
