@@ -1,21 +1,27 @@
 package cli
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/Skpow1234/Vaultpack/internal/audit"
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
+	"github.com/Skpow1234/Vaultpack/internal/crypto"
 	"github.com/spf13/cobra"
 )
 
 func newAttestCmd() *cobra.Command {
 	var (
-		inFile  string
-		outFile string
-		embed   bool
+		inFile           string
+		outFile          string
+		embed            bool
+		useTransparency  bool
+		signingPriv      string
+		rekorURL         string
 	)
 
 	cmd := &cobra.Command{
@@ -69,6 +75,49 @@ func newAttestCmd() *cobra.Command {
 				return fmt.Errorf("marshal provenance: %w", err)
 			}
 
+			// M24: optional Rekor upload of the signed provenance. We sign the
+			// provBytes with the supplied key and upload a hashedrekord entry.
+			// The Rekor metadata is printed but, because attest doesn't always
+			// rewrite the bundle, it is not appended to the manifest by default.
+			var rekorOut map[string]any
+			if useTransparency {
+				if signingPriv == "" {
+					return fmt.Errorf("--transparency requires --signing-priv")
+				}
+				signer, signAlgo, err := crypto.LoadPrivateKey(signingPriv)
+				if err != nil {
+					return fmt.Errorf("load signing key: %w", err)
+				}
+				if !rekorSupportsAlgo(signAlgo) {
+					return fmt.Errorf("transparency requires a Rekor-compatible signing algo; got %q", signAlgo)
+				}
+				sig, err := crypto.SignMessage(signer, signAlgo, provBytes)
+				if err != nil {
+					return fmt.Errorf("sign provenance: %w", err)
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				entry, err := uploadToRekor(ctx, rekorUploadOpts{
+					RekorURL:   rekorURL,
+					PubKey:     crypto.PublicKeyOf(signer),
+					Signature:  sig,
+					SignedData: provBytes,
+				})
+				cancel()
+				if err != nil {
+					return fmt.Errorf("rekor upload: %w", err)
+				}
+				rekorOut = map[string]any{
+					"log_url":         entry.LogURL,
+					"log_index":       entry.LogIndex,
+					"uuid":            entry.UUID,
+					"integrated_time": entry.IntegratedTime,
+				}
+				// attest doesn't rewrite the manifest by design (it produces
+				// a side-car or stdout artifact). The Rekor entry stands alone
+				// on the transparency log and the UUID is surfaced to the user
+				// so they can record it in their build system. Use
+				// `sign --transparency` to bake the entry into the manifest.
+			}
 			if embed {
 				embedPath := inFile
 				if displayName != inFile {
@@ -82,9 +131,17 @@ func newAttestCmd() *cobra.Command {
 				}
 				auditLog(audit.OpAttest, displayName, embedPath, bundleDigestHex, "", true, "")
 				if printer.Mode == OutputJSON {
-					return printer.JSON(map[string]string{"provenance": "embedded", "bundle": embedPath})
+					out := map[string]any{"provenance": "embedded", "bundle": embedPath}
+					if rekorOut != nil {
+						out["transparency"] = rekorOut
+					}
+					return printer.JSON(out)
 				}
 				printer.Human("Provenance embedded in %s", embedPath)
+				if rekorOut != nil {
+					printer.Human("Rekor UUID:  %v", rekorOut["uuid"])
+					printer.Human("Rekor index: %v", rekorOut["log_index"])
+				}
 				return nil
 			}
 
@@ -94,9 +151,17 @@ func newAttestCmd() *cobra.Command {
 				}
 				auditLog(audit.OpAttest, displayName, outFile, bundleDigestHex, "", true, "")
 				if printer.Mode == OutputJSON {
-					return printer.JSON(map[string]string{"provenance_file": outFile, "bundle": displayName})
+					out := map[string]any{"provenance_file": outFile, "bundle": displayName}
+					if rekorOut != nil {
+						out["transparency"] = rekorOut
+					}
+					return printer.JSON(out)
 				}
 				printer.Human("Provenance written to %s", outFile)
+				if rekorOut != nil {
+					printer.Human("Rekor UUID:  %v", rekorOut["uuid"])
+					printer.Human("Rekor index: %v", rekorOut["log_index"])
+				}
 				return nil
 			}
 
@@ -114,6 +179,9 @@ func newAttestCmd() *cobra.Command {
 	cmd.Flags().StringVar(&inFile, "in", "", "input .vpack bundle (required)")
 	cmd.Flags().StringVar(&outFile, "out", "", "output provenance.json path (default: stdout)")
 	cmd.Flags().BoolVar(&embed, "embed", false, "store provenance.json inside the bundle (rewrites bundle)")
+	cmd.Flags().BoolVar(&useTransparency, "transparency", false, "sign the provenance and upload it to a Sigstore Rekor transparency log")
+	cmd.Flags().StringVar(&signingPriv, "signing-priv", "", "private key for signing provenance (required with --transparency)")
+	cmd.Flags().StringVar(&rekorURL, "rekor-url", "", "Rekor base URL (defaults to https://rekor.sigstore.dev)")
 
 	return cmd
 }

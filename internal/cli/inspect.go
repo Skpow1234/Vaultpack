@@ -160,6 +160,21 @@ func newInspectCmd() *cobra.Command {
 					}
 				}
 			}
+			if len(m.Transparency) > 0 {
+				printer.Human("")
+				printer.Human("Transparency: %d entry(ies)", len(m.Transparency))
+				for i, e := range m.Transparency {
+					printer.Human("  [%d] %s", i, e.LogURL)
+					printer.Human("      uuid:      %s", e.UUID)
+					printer.Human("      index:     %d", e.LogIndex)
+					if e.IntegratedTime != 0 {
+						printer.Human("      logged at: %d (unix)", e.IntegratedTime)
+					}
+					if e.Identity != "" {
+						printer.Human("      identity:  %s", e.Identity)
+					}
+				}
+			}
 			printer.Human("")
 			printer.Human("Ciphertext:")
 			printer.Human("  Size:     %d bytes", m.Ciphertext.Size)
