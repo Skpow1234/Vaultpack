@@ -35,6 +35,32 @@ type Manifest struct {
 	Compress      *CompressionMeta `json:"compression,omitempty"`    // nil = no compression
 	KeySplitting  *KeySplitMeta   `json:"key_splitting,omitempty"`  // nil = key not split
 	RotatedFrom   []RotationEntry  `json:"rotated_from,omitempty"`   // M22: lineage of rotation/rewrap ops
+	Transparency  []TransparencyEntry `json:"transparency,omitempty"` // M24: Rekor/Sigstore inclusion proofs
+}
+
+// TransparencyEntry records a Sigstore Rekor inclusion proof for the bundle's
+// signature. A bundle may carry multiple entries (one per Rekor instance, or
+// one per signing key). Entries are appended in chronological order; signers
+// MUST NOT remove existing entries.
+//
+// LogIndex + UUID + IntegratedTime + LogID + Body uniquely identify the entry;
+// SETB64 is Rekor's detached "Signed Entry Timestamp" — the proof that Rekor
+// committed to this entry at the recorded time. EntryB64 holds the canonical
+// Rekor body JSON so verifiers can reconstruct the exact bytes that SETB64
+// covers without re-fetching from Rekor.
+type TransparencyEntry struct {
+	LogURL         string `json:"log_url"`                  // e.g. "https://rekor.sigstore.dev"
+	LogID          string `json:"log_id,omitempty"`         // hex(sha256(log_pub_key_DER))
+	LogIndex       int64  `json:"log_index"`
+	UUID           string `json:"uuid"`
+	IntegratedTime int64  `json:"integrated_time"`           // unix seconds
+	SETB64         string `json:"set_b64"`                   // base64(Rekor SET, ECDSA over canonical body)
+	EntryB64       string `json:"entry_b64,omitempty"`       // base64(canonical body JSON)
+	Format         string `json:"format,omitempty"`          // "hashedrekord" | "intoto"
+	// Optional Fulcio / keyless fields.
+	CertChainPEM string `json:"cert_chain_pem,omitempty"`     // PEM cert chain returned by Fulcio
+	Identity     string `json:"identity,omitempty"`           // OIDC subject (email or SAN URI)
+	OIDCIssuer   string `json:"oidc_issuer,omitempty"`
 }
 
 // RotationEntry records one rotation/rewrap step in a bundle's lineage.

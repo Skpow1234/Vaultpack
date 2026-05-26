@@ -155,6 +155,20 @@ func marshalPublicKeyPEM(key crypto.PublicKey) ([]byte, error) {
 	}), nil
 }
 
+// MarshalPublicKeyPEM exports a public key to PKIX PEM format. Only stdlib-
+// supported key types are accepted (RSA, ECDSA, Ed25519); for PQ keys this
+// returns an error. Useful for callers (e.g. Sigstore Rekor) that need the
+// PEM bytes corresponding to the signer's verification key.
+func MarshalPublicKeyPEM(key crypto.PublicKey) ([]byte, error) {
+	return marshalPublicKeyPEM(key)
+}
+
+// PublicKeyOf returns the verification key paired with a crypto.Signer's
+// private half. This is a tiny helper so callers don't need a type switch.
+func PublicKeyOf(signer crypto.Signer) crypto.PublicKey {
+	return signer.Public()
+}
+
 // SaveKeyPEM writes PEM-encoded key data to a file.
 func SaveKeyPEM(path string, data []byte, mode os.FileMode) error {
 	return os.WriteFile(path, data, mode)

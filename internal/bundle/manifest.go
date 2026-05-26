@@ -26,6 +26,11 @@ func UnmarshalManifest(data []byte) (*Manifest, error) {
 
 // CanonicalManifest returns deterministic JSON bytes for signing.
 // Keys are sorted and no extra whitespace is added.
+//
+// Fields that record metadata *about* the signature (and therefore cannot be
+// part of what the signature covers without creating a chicken-and-egg
+// dependency) are stripped before canonicalization. Currently that is just
+// `transparency` (the Rekor inclusion proofs added by M24).
 func CanonicalManifest(m *Manifest) ([]byte, error) {
 	// Marshal to generic map, then re-encode with sorted keys.
 	data, err := json.Marshal(m)
@@ -37,6 +42,9 @@ func CanonicalManifest(m *Manifest) ([]byte, error) {
 	if err := json.Unmarshal(data, &generic); err != nil {
 		return nil, fmt.Errorf("canonical marshal step 2: %w", err)
 	}
+
+	// M24: transparency must not be inside the signed view.
+	delete(generic, "transparency")
 
 	canonical, err := marshalSorted(generic)
 	if err != nil {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -17,9 +18,11 @@ import (
 
 func newSignCmd() *cobra.Command {
 	var (
-		inFile      string
-		signingPriv string
-		algo        string
+		inFile          string
+		signingPriv     string
+		algo            string
+		useTransparency bool
+		rekorURL        string
 	)
 
 	cmd := &cobra.Command{
@@ -128,6 +131,48 @@ func newSignCmd() *cobra.Command {
 				ts = *br.Manifest.SignedAt
 			}
 
+			// M24: optional Sigstore Rekor transparency upload. Done *after* the
+			// signature is computed but *before* the manifest is finalized so the
+			// resulting TransparencyEntry is baked into the canonical manifest.
+			var trEntry *bundle.TransparencyEntry
+			if useTransparency {
+				if !rekorSupportsAlgo(signAlgo) {
+					return fmt.Errorf("transparency log requires a Rekor-compatible signing algo (ed25519, ecdsa-p256/p384, rsa-pss-2048/4096); got %q", signAlgo)
+				}
+				// We re-load the signer just to obtain its public key. Plugin
+				// signers are not supported here because they don't expose a
+				// crypto.PublicKey we can PEM-encode.
+				if plugin.GlobalRegistry().SignAlgo(signAlgo) != "" {
+					return fmt.Errorf("transparency log not supported for plugin signer %q", signAlgo)
+				}
+				signer, _, err := crypto.LoadPrivateKey(signingPriv)
+				if err != nil {
+					return fmt.Errorf("re-load signing key for rekor: %w", err)
+				}
+				canonical, err := bundle.CanonicalManifest(br.Manifest)
+				if err != nil {
+					return fmt.Errorf("canonicalize manifest for rekor: %w", err)
+				}
+				payloadHash, err := crypto.HashReader(bytes.NewReader(br.Ciphertext), "sha256")
+				if err != nil {
+					return fmt.Errorf("hash payload for rekor: %w", err)
+				}
+				sigMsg := crypto.BuildSigningMessage(canonical, payloadHash)
+				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				entry, err := uploadToRekor(ctx, rekorUploadOpts{
+					RekorURL:   rekorURL,
+					PubKey:     crypto.PublicKeyOf(signer),
+					Signature:  sig,
+					SignedData: sigMsg,
+				})
+				cancel()
+				if err != nil {
+					return fmt.Errorf("rekor upload: %w", err)
+				}
+				trEntry = &entry
+				br.Manifest.Transparency = append(br.Manifest.Transparency, entry)
+			}
+
 			// Re-write the bundle with the signature and updated manifest.
 			manifestBytes, err := bundle.MarshalManifest(br.Manifest)
 			if err != nil {
@@ -153,18 +198,32 @@ func newSignCmd() *cobra.Command {
 
 			switch printer.Mode {
 			case OutputJSON:
-				return printer.JSON(map[string]any{
+				out := map[string]any{
 					"bundle":    displayName,
 					"signed":    true,
 					"algorithm": signAlgo,
 					"signed_at": ts,
 					"sig_b64":   util.B64Encode(sig),
-				})
+				}
+				if trEntry != nil {
+					out["transparency"] = map[string]any{
+						"log_url":         trEntry.LogURL,
+						"log_index":       trEntry.LogIndex,
+						"uuid":            trEntry.UUID,
+						"integrated_time": trEntry.IntegratedTime,
+					}
+				}
+				return printer.JSON(out)
 			default:
 				printer.Human("Signed:    %s", displayName)
 				printer.Human("Algo:      %s", signAlgo)
 				if ts != "" {
 					printer.Human("Timestamp: %s", ts)
+				}
+				if trEntry != nil {
+					printer.Human("Rekor URL: %s", trEntry.LogURL)
+					printer.Human("Rekor UUID:  %s", trEntry.UUID)
+					printer.Human("Rekor index: %d", trEntry.LogIndex)
 				}
 			}
 			return nil
@@ -174,6 +233,8 @@ func newSignCmd() *cobra.Command {
 	cmd.Flags().StringVar(&inFile, "in", "", "input .vpack bundle to sign (required)")
 	cmd.Flags().StringVar(&signingPriv, "signing-priv", "", "path to private key (required)")
 	cmd.Flags().StringVar(&algo, "algo", "", "signing algorithm (auto-detected from key if omitted)")
+	cmd.Flags().BoolVar(&useTransparency, "transparency", false, "upload the signature to a Sigstore Rekor transparency log")
+	cmd.Flags().StringVar(&rekorURL, "rekor-url", "", "Rekor base URL (defaults to https://rekor.sigstore.dev)")
 
 	return cmd
 }
