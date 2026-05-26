@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+# Force CI to use exactly the Go version installed by setup-go and to ignore
+# any `toolchain` directive in go.mod. Without this, `go` may auto-download the
+# version named in `toolchain` and reintroduce stdlib vulns.
+env:
+  GOTOOLCHAIN: local
+
 jobs:
   test:
     name: Test (${{ matrix.os }})
@@ -17,7 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        go: ["1.24.13"]
+        go: ["1.25.10"]
 
     steps:
       - uses: actions/checkout@v4
@@ -49,7 +55,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.13"
+          go-version: "1.25.10"
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
@@ -63,19 +69,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # NOTE: `go test -fuzz=...` only accepts a SINGLE package, never a `/...` glob.
+        # `internal/crypto/...` resolves to both `crypto` and `crypto/aesgcmsiv`, so we
+        # use the non-recursive path here.
         include:
           - target: FuzzUnmarshalManifest
-            package: ./internal/bundle/...
+            package: ./internal/bundle
           - target: FuzzCanonicalManifest
-            package: ./internal/bundle/...
+            package: ./internal/bundle
           - target: FuzzDecryptAESGCM
-            package: ./internal/crypto/...
+            package: ./internal/crypto
           - target: FuzzEncryptDecryptRoundTrip
-            package: ./internal/crypto/...
+            package: ./internal/crypto
           - target: FuzzStreamEncryptDecryptRoundTrip
-            package: ./internal/crypto/...
+            package: ./internal/crypto
           - target: FuzzDecryptStreamCorrupted
-            package: ./internal/crypto/...
+            package: ./internal/crypto
 
     steps:
       - uses: actions/checkout@v4
@@ -83,7 +92,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.13"
+          go-version: "1.25.10"
 
       - name: Fuzz ${{ matrix.target }}
         run: go test -fuzz=${{ matrix.target }} -fuzztime=30s ${{ matrix.package }}
@@ -110,7 +119,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.13"
+          go-version: "1.25.10"
 
       - name: Build
         env:

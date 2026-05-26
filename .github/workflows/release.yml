@@ -17,6 +17,11 @@ permissions:
   # Required by cosign / Sigstore for keyless signing.
   id-token: write
 
+# Force the installed Go to be used (no toolchain auto-download) so the released
+# binaries are built with the patched stdlib.
+env:
+  GOTOOLCHAIN: local
+
 jobs:
   goreleaser:
     name: GoReleaser (cosign-signed)
@@ -30,7 +35,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.13"
+          go-version: "1.25.10"
 
       - name: Install syft (SBOM generation)
         uses: anchore/sbom-action/download-syft@v0
