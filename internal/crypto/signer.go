@@ -181,7 +181,18 @@ func LoadPrivateKey(path string) (crypto.Signer, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("load private key: %w", err)
 	}
+	return parsePrivateKeyBytes(data)
+}
 
+// ParsePrivateKey parses a private key from raw bytes (PEM, or the legacy
+// ed25519 raw format) and returns the parsed crypto.Signer plus the
+// detected algorithm name. This is the in-memory counterpart of
+// LoadPrivateKey and is the entry point used by the public SDK.
+func ParsePrivateKey(data []byte) (crypto.Signer, string, error) {
+	return parsePrivateKeyBytes(data)
+}
+
+func parsePrivateKeyBytes(data []byte) (crypto.Signer, string, error) {
 	content := strings.TrimSpace(string(data))
 
 	// Legacy Ed25519 raw format: "ed25519-priv:<base64>"
@@ -199,7 +210,7 @@ func LoadPrivateKey(path string) (crypto.Signer, string, error) {
 	// PEM format.
 	block, _ := pem.Decode(data)
 	if block == nil {
-		return nil, "", fmt.Errorf("no PEM block found in %s", path)
+		return nil, "", fmt.Errorf("no PEM block found in private key data")
 	}
 
 	if mldsa, _ := ParseMLDSAPrivateKeyPEM(block); mldsa != nil {
@@ -255,7 +266,17 @@ func LoadAnyPublicKey(path string) (crypto.PublicKey, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("load public key: %w", err)
 	}
+	return parsePublicKeyBytes(data)
+}
 
+// ParseAnyPublicKey parses a public key from raw bytes (PEM or legacy
+// ed25519 raw format). This is the in-memory counterpart of
+// LoadAnyPublicKey and is the entry point used by the public SDK.
+func ParseAnyPublicKey(data []byte) (crypto.PublicKey, string, error) {
+	return parsePublicKeyBytes(data)
+}
+
+func parsePublicKeyBytes(data []byte) (crypto.PublicKey, string, error) {
 	content := strings.TrimSpace(string(data))
 
 	// Legacy Ed25519 raw format: "ed25519-pub:<base64>"
@@ -273,7 +294,7 @@ func LoadAnyPublicKey(path string) (crypto.PublicKey, string, error) {
 	// PEM format.
 	block, _ := pem.Decode(data)
 	if block == nil {
-		return nil, "", fmt.Errorf("no PEM block found in %s", path)
+		return nil, "", fmt.Errorf("no PEM block found in public key data")
 	}
 
 	if mldsa, _ := ParseMLDSAPublicKeyPEM(block); mldsa != nil {
