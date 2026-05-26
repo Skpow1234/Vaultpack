@@ -34,6 +34,16 @@ type Manifest struct {
 	SignedAt      *string          `json:"signed_at,omitempty"`      // RFC 3339 timestamp of signature
 	Compress      *CompressionMeta `json:"compression,omitempty"`    // nil = no compression
 	KeySplitting  *KeySplitMeta   `json:"key_splitting,omitempty"`  // nil = key not split
+	RotatedFrom   []RotationEntry  `json:"rotated_from,omitempty"`   // M22: lineage of rotation/rewrap ops
+}
+
+// RotationEntry records one rotation/rewrap step in a bundle's lineage.
+// Entries are appended in chronological order; the most recent operation is last.
+type RotationEntry struct {
+	Operation  string `json:"operation"`             // "rewrap" | "rotate-key" | "add-recipient" | "remove-recipient"
+	RotatedAt  string `json:"rotated_at"`            // RFC 3339 timestamp
+	BundleHash string `json:"bundle_hash,omitempty"` // SHA-256 of the previous bundle file (hex)
+	Notes      string `json:"notes,omitempty"`       // free-form context (old KMS key ID, recipient fingerprint, etc.)
 }
 
 // InputMeta describes the original plaintext file.
