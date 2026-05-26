@@ -13,6 +13,7 @@ import (
 func newBatchInspectCmd() *cobra.Command {
 	var (
 		srcDir string
+		redact bool
 	)
 
 	cmd := &cobra.Command{
@@ -21,8 +22,12 @@ func newBatchInspectCmd() *cobra.Command {
 		Long: `Recursively find all .vpack bundles in a directory and display a summary
 of each bundle's manifest. Also reads batch-manifest.json if present.
 
+Use --redact to omit sensitive fields (plaintext digest, fingerprints, nonces, etc.)
+in JSON output, making the result safe to share for audit or support purposes.
+
 Example:
-  vaultpack batch-inspect --dir ./encrypted/`,
+  vaultpack batch-inspect --dir ./encrypted/
+  vaultpack batch-inspect --dir ./encrypted/ --redact --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := NewPrinter(flagJSON, flagQuiet)
 
@@ -52,13 +57,14 @@ Example:
 			}
 
 			type bundleInfo struct {
-				RelPath string          `json:"rel_path"`
-				Version string          `json:"version"`
-				Input   bundle.InputMeta `json:"input"`
-				Cipher  string          `json:"cipher"`
-				Hash    string          `json:"hash_algo"`
-				Chunked bool            `json:"chunked"`
-				Error   string          `json:"error,omitempty"`
+				RelPath  string            `json:"rel_path"`
+				Version  string            `json:"version"`
+				Input    bundle.InputMeta  `json:"input"`
+				Cipher   string            `json:"cipher"`
+				Hash     string            `json:"hash_algo"`
+				Chunked  bool              `json:"chunked"`
+				Redacted *RedactedManifest `json:"redacted,omitempty"`
+				Error    string            `json:"error,omitempty"`
 			}
 
 			infos := make([]bundleInfo, 0, len(files))
@@ -72,14 +78,18 @@ Example:
 					})
 					continue
 				}
-				infos = append(infos, bundleInfo{
+				info := bundleInfo{
 					RelPath: relPath,
 					Version: m.Version,
 					Input:   m.Input,
 					Cipher:  m.Encryption.AEAD,
 					Hash:    m.Plaintext.Algo,
 					Chunked: m.Encryption.IsChunked(),
-				})
+				}
+				if redact && printer.Mode == OutputJSON {
+					info.Redacted = Redact(m)
+				}
+				infos = append(infos, info)
 			}
 
 			switch printer.Mode {
@@ -88,6 +98,7 @@ Example:
 					"directory": srcDir,
 					"total":     len(infos),
 					"bundles":   infos,
+					"redacted":  redact,
 				}
 				if bm != nil {
 					result["batch_manifest"] = bm
@@ -119,6 +130,7 @@ Example:
 	}
 
 	cmd.Flags().StringVar(&srcDir, "dir", "", "directory with .vpack bundles (required)")
+	cmd.Flags().BoolVar(&redact, "redact", false, "omit sensitive fields (fingerprints, nonces, salts) from JSON output")
 
 	return cmd
 }

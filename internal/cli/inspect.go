@@ -9,12 +9,18 @@ import (
 )
 
 func newInspectCmd() *cobra.Command {
-	var inFile string
+	var (
+		inFile string
+		redact bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "inspect",
 		Short: "Show manifest details of a .vpack bundle",
-		Long:  "Open a .vpack bundle and display its manifest in human-readable or JSON format.\n\nAzure: use az://container/blob.vpack for --in.",
+		Long: "Open a .vpack bundle and display its manifest in human-readable or JSON format.\n\n" +
+			"With --redact, sensitive fields (plaintext digest, nonces, tags, key IDs, recipient fingerprints,\n" +
+			"wrapped DEKs, KDF salt, etc.) are omitted so the output is safe to share.\n\n" +
+			"Azure: use az://container/blob.vpack for --in.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := NewPrinter(flagJSON, flagQuiet)
 
@@ -37,6 +43,10 @@ func newInspectCmd() *cobra.Command {
 			m, rawBytes, err := bundle.ReadManifestOnly(inFile)
 			if err != nil {
 				return fmt.Errorf("read manifest: %w", err)
+			}
+
+			if redact {
+				return inspectRedacted(printer, displayName, m)
 			}
 
 			switch printer.Mode {
@@ -141,6 +151,71 @@ func newInspectCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&inFile, "in", "", "input .vpack bundle (required)")
+	cmd.Flags().BoolVar(&redact, "redact", false, "omit sensitive fields (fingerprints, nonces, tags, wrapped DEKs, salts)")
 
 	return cmd
+}
+
+func inspectRedacted(printer *Printer, displayName string, m *bundle.Manifest) error {
+	r := Redact(m)
+	switch printer.Mode {
+	case OutputJSON:
+		return printer.JSON(r)
+	default:
+		printer.Human("Bundle:     %s  (REDACTED)", displayName)
+		printer.Human("Version:    %s", r.Version)
+		if r.CreatedAt != "" {
+			printer.Human("Created:    %s", r.CreatedAt)
+		}
+		printer.Human("")
+		printer.Human("Input:")
+		printer.Human("  Name:     %s", r.Input.Name)
+		printer.Human("  Size:     %d bytes", r.Input.Size)
+		printer.Human("")
+		printer.Human("Plaintext Hash:")
+		printer.Human("  Algo:     %s", r.Plaintext.Algo)
+		printer.Human("  Digest:   <redacted>")
+		printer.Human("")
+		printer.Human("Encryption:")
+		printer.Human("  AEAD:     %s", r.Encryption.AEAD)
+		if r.Encryption.Chunked && r.Encryption.ChunkSize != nil {
+			printer.Human("  Chunked:  yes (%d byte chunks)", *r.Encryption.ChunkSize)
+		}
+		printer.Human("  Nonce/Tag/KeyID: <redacted>")
+		if r.Encryption.KDF != nil {
+			printer.Human("")
+			printer.Human("Key Derivation:")
+			printer.Human("  KDF:      %s", r.Encryption.KDF.Algo)
+			printer.Human("  Salt:     <redacted>")
+		}
+		if r.Encryption.Hybrid != nil {
+			printer.Human("")
+			printer.Human("Hybrid Encryption:")
+			printer.Human("  Scheme:     %s", r.Encryption.Hybrid.Scheme)
+			printer.Human("  Recipients: %d", r.Encryption.Hybrid.Recipients)
+		}
+		if r.Encryption.HasKMS {
+			printer.Human("  KMS:      yes (key id and wrapped DEK redacted)")
+		}
+		if r.Compression != nil {
+			printer.Human("")
+			printer.Human("Compression:")
+			printer.Human("  Algo:     %s", r.Compression.Algo)
+		}
+		if r.KeySplitting != nil {
+			printer.Human("")
+			printer.Human("Key Splitting:")
+			printer.Human("  Scheme:    %s", r.KeySplitting.Scheme)
+			printer.Human("  Threshold: %d-of-%d", r.KeySplitting.Threshold, r.KeySplitting.Total)
+		}
+		if r.SignatureAlgo != nil {
+			printer.Human("")
+			printer.Human("Signature:")
+			printer.Human("  Algo:     %s", *r.SignatureAlgo)
+		}
+		printer.Human("")
+		printer.Human("Ciphertext:")
+		printer.Human("  Size:     %d bytes", r.Ciphertext.Size)
+		return nil
+	}
 }
