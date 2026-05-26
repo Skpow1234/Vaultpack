@@ -832,6 +832,112 @@ vaultpack policy show     --policy policy.yaml
 Every policy denial is recorded in the audit log as a `policy-deny` entry with
 the offending operation, matched rule name, and reason.
 
+## Service Mode (`vaultpack serve`)
+
+`vaultpack serve` runs a long-running HTTP API exposing the SDK to remote
+clients over the network. The wire contract is the same JSON envelope as
+the C-shared library and WASM bindings, so a single set of client code can
+target all three transports.
+
+```bash
+# Local development (no auth — refuses unless --auth-disabled is set):
+vaultpack serve --listen :8443 --auth-disabled
+
+# Production with bearer-token auth + TLS:
+vaultpack serve \
+  --listen :8443 \
+  --auth-token "$(cat /etc/vaultpack/token)" \
+  --tls-cert /etc/ssl/vaultpack.crt \
+  --tls-key  /etc/ssl/vaultpack.key
+
+# Production with mTLS only (no bearer):
+vaultpack serve --listen :8443 \
+  --tls-cert server.crt --tls-key server.key \
+  --tls-client-ca client-ca.pem
+
+# UNIX socket for sidecar deployments:
+vaultpack serve --listen unix:/run/vaultpack.sock --auth-disabled
+```
+
+### Endpoints
+
+All endpoints are POST and consume/produce `application/json` unless noted.
+Every reply has shape `{"ok": true|false, ...}`.
+
+| Method | Path             | Purpose                                |
+|--------|------------------|----------------------------------------|
+| GET    | `/healthz`       | Liveness probe (no auth, no metrics)   |
+| GET    | `/metrics`       | Prometheus text exposition (no auth)   |
+| GET    | `/v1/version`    | SDK + API version                      |
+| POST   | `/v1/protect`    | Encrypt → bundle                       |
+| POST   | `/v1/decrypt`    | Decrypt bundle                         |
+| POST   | `/v1/inspect`    | Decode manifest                        |
+| POST   | `/v1/sign`       | Add/replace detached signature         |
+| POST   | `/v1/verify`     | Verify detached signature              |
+
+See [`docs/openapi.yaml`](docs/openapi.yaml) for the full OpenAPI 3.1 spec
+including every request/response schema.
+
+### Example: end-to-end round-trip with `curl`
+
+```bash
+TOKEN="$(cat /etc/vaultpack/token)"
+
+# Encrypt some plaintext, get the bundle + generated key back.
+RESPONSE=$(curl -s -X POST https://vp.example.com/v1/protect \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"plaintext_b64":"aGVsbG8gd29ybGQ="}')
+BUNDLE=$(jq -r .bundle_b64 <<< "$RESPONSE")
+KEY=$(jq -r .generated_key_b64 <<< "$RESPONSE")
+
+# Decrypt it again.
+curl -s -X POST https://vp.example.com/v1/decrypt \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n --arg b "$BUNDLE" --arg k "$KEY" '{bundle_b64:$b, key_b64:$k}')" \
+  | jq -r .plaintext_b64 | base64 -d
+```
+
+### Authentication
+
+The server refuses to start unless at least one of the following is true:
+
+- `--auth-token <secret>` is set (constant-time bearer check on every request).
+- `--tls-client-ca <ca.pem>` is set (mutual TLS — client cert required).
+- `--auth-disabled` is set (explicit opt-out for local dev only).
+
+Tokens can also be read from a file with `--auth-token-file`, which is
+recommended in container environments to keep the secret out of the process
+argv.
+
+### KMS unwrap cache
+
+When the server decrypts bundles wrapped by a KMS, it caches the unwrap
+result in memory keyed by `(provider, key-id, wrapped-DEK)` for
+`--kms-cache-ttl` (default 5 m). The cache is bounded by
+`--kms-cache-size` (default 1024 entries; FIFO eviction). Hits, misses,
+evictions, and current size are exported as Prometheus metrics:
+
+```
+vaultpack_kms_cache_entries 42
+vaultpack_kms_cache_hits_total 1289
+vaultpack_kms_cache_misses_total 51
+vaultpack_kms_cache_evicted_total 0
+```
+
+### Observability
+
+`GET /metrics` returns a Prometheus 0.0.4 text exposition with:
+
+- `vaultpack_build_info{version}`         — gauge constant 1.
+- `vaultpack_uptime_seconds`              — counter.
+- `vaultpack_http_requests_total{path,status}` — counter per endpoint.
+- `vaultpack_http_request_duration_seconds` — histogram per endpoint
+  (`{le="0.005"}…{le="+Inf"}`, `_sum`, `_count`).
+- `vaultpack_auth_denied_total`           — counter.
+- `vaultpack_kms_cache_*`                 — see above.
+
 ## SDK & Language Bindings
 
 VaultPack ships with first-class libraries for Go, Python, and JavaScript so
