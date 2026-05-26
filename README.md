@@ -146,6 +146,29 @@ sudo mv vaultpack /usr/local/bin/
 
 **Windows:** download `vaultpack-windows-amd64.zip` or `vaultpack-windows-arm64.zip` from Releases, extract, and add the folder to your `PATH`.
 
+### Package managers
+
+```bash
+# Homebrew (macOS / Linux) — once the tap is published
+brew install Skpow1234/tap/vaultpack
+
+# Chocolatey (Windows) — once the package is published
+choco install vaultpack
+
+# Debian / Ubuntu (.deb) and Red Hat / Fedora (.rpm) — direct download
+curl -sLO https://github.com/Skpow1234/Vaultpack/releases/latest/download/vaultpack_<version>_linux_amd64.deb
+sudo dpkg -i vaultpack_<version>_linux_amd64.deb
+
+curl -sLO https://github.com/Skpow1234/Vaultpack/releases/latest/download/vaultpack_<version>_linux_amd64.rpm
+sudo rpm -ivh vaultpack_<version>_linux_amd64.rpm
+
+# Alpine Linux (.apk)
+curl -sLO https://github.com/Skpow1234/Vaultpack/releases/latest/download/vaultpack_<version>_linux_amd64.apk
+sudo apk add --allow-untrusted vaultpack_<version>_linux_amd64.apk
+```
+
+> `.deb` / `.rpm` / `.apk` artifacts are produced by [`nfpm`](https://nfpm.goreleaser.com/) inside the goreleaser pipeline. A hosted apt/yum repository (Cloudsmith) can be enabled by setting `CLOUDSMITH_API_KEY` in the release workflow secrets.
+
 ### Verify checksums
 
 Before installing, verify the archive with the published SHA-256 checksums:
@@ -157,6 +180,27 @@ sha256sum -c checksums-sha256.txt --ignore-missing
 ```
 
 On macOS use `shasum -a 256 -c checksums-sha256.txt --ignore-missing`.
+
+### Verify cosign signatures (Sigstore keyless)
+
+Release artifacts and the SHA-256 checksum file are signed with [cosign](https://docs.sigstore.dev/) using **keyless signing** against the public Sigstore transparency log (Fulcio + Rekor). Each archive ships with a sidecar signature (`*.sig`) and certificate (`*.pem`).
+
+```bash
+ARCHIVE=vaultpack-linux-amd64.tar.gz
+BASE=https://github.com/Skpow1234/Vaultpack/releases/latest/download
+curl -sLO $BASE/$ARCHIVE
+curl -sLO $BASE/$ARCHIVE.sig
+curl -sLO $BASE/$ARCHIVE.pem
+
+cosign verify-blob \
+  --certificate $ARCHIVE.pem \
+  --signature $ARCHIVE.sig \
+  --certificate-identity-regexp 'https://github.com/Skpow1234/Vaultpack' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  $ARCHIVE
+```
+
+A successful run prints `Verified OK`. The same procedure applies to `checksums-sha256.txt` and any other release artifact.
 
 ### Upgrade
 
@@ -197,7 +241,7 @@ Multi-arch build: `make docker-buildx` or `docker buildx build --platform linux/
 
 - **Checksums:** Always verify `checksums-sha256.txt` against the downloaded archive before installing.
 - **SBOM:** Releases include CycloneDX SBOMs (e.g. `vaultpack-linux-amd64.tar.gz.sbom.json`) for dependency and supply-chain review.
-- **Optional:** Binaries and container images can be signed/attested (e.g. cosign, SLSA) in your pipeline; see the repo CI and release workflow.
+- **Cosign signatures:** All release artifacts are signed with cosign keyless (Sigstore) — see the verification snippet above. Signatures (`*.sig`) and certificates (`*.pem`) are published alongside each archive and the checksum file.
 
 ## Usage
 

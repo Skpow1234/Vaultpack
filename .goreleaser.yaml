@@ -69,16 +69,102 @@ sboms:
       - SYFT_FILE_METADATA_CATALOGER_ENABLED=true
     disable: false
 
-# Optional: uncomment and set repo when adding a Homebrew tap
-# brews:
-#   - repository:
-#       owner: Skpow1234
-#       name: homebrew-tap
-#     homepage: https://github.com/Skpow1234/Vaultpack
-#     description: "Encrypt, hash, and sign data into .vpack bundles"
+# Sign release artifacts with cosign (keyless via Sigstore / Fulcio).
+# Requires cosign in PATH and an OIDC token in the environment
+# (provided automatically by GitHub Actions when `id-token: write` is set on the job).
+# Verify with:
+#   cosign verify-blob \
+#     --certificate <name>.pem \
+#     --signature <name>.sig \
+#     --certificate-identity-regexp 'https://github.com/Skpow1234/Vaultpack' \
+#     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+#     <name>
+signs:
+  - id: cosign
+    cmd: cosign
+    artifacts: all
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - "sign-blob"
+      - "--yes"
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
 
-# Optional: uncomment for Chocolatey (Windows)
-# chocolatelys:
-#   - repository:
-#       owner: Skpow1234
-#       name: chocolatey-packages
+# Homebrew tap (macOS / Linux). Requires a separate `Skpow1234/homebrew-tap`
+# repository and a personal access token exposed as $HOMEBREW_TAP_GITHUB_TOKEN.
+# When the token is missing the brews step is skipped automatically by GoReleaser.
+brews:
+  - name: vaultpack
+    repository:
+      owner: Skpow1234
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/Skpow1234/Vaultpack
+    description: "Encrypt, hash, and sign data into portable .vpack bundles."
+    license: MIT
+    commit_author:
+      name: vaultpack-release-bot
+      email: actions@github.com
+    install: |
+      bin.install "vaultpack"
+    test: |
+      system "#{bin}/vaultpack", "--version"
+    skip_upload: auto
+
+# Chocolatey package (Windows). Requires CHOCOLATEY_API_KEY in the environment.
+# skip_publish: true keeps the .nupkg artifact in dist/ without pushing to chocolatey.org.
+chocolateys:
+  - name: vaultpack
+    title: VaultPack
+    authors: Skpow1234
+    project_url: https://github.com/Skpow1234/Vaultpack
+    license_url: https://github.com/Skpow1234/Vaultpack/blob/main/LICENSE
+    project_source_url: https://github.com/Skpow1234/Vaultpack
+    docs_url: https://github.com/Skpow1234/Vaultpack#readme
+    bug_tracker_url: https://github.com/Skpow1234/Vaultpack/issues
+    copyright: "Skpow1234"
+    summary: "Encrypt, hash, and sign data into portable .vpack bundles."
+    description: |
+      VaultPack encrypts, hashes, and signs data artifacts into portable .vpack bundles.
+      Supports AES-GCM, ChaCha20-Poly1305, AES-GCM-SIV, hybrid recipient encryption,
+      multi-recipient bundles, Ed25519/Ed448/ECDSA/RSA-PSS/ML-DSA/SLH-DSA signing,
+      KMS-wrapped DEKs (AWS/GCP/Azure), and Sigstore-signed releases.
+    release_notes: "https://github.com/Skpow1234/Vaultpack/releases/tag/v{{ .Version }}"
+    tags: "encryption signing aead post-quantum kms cli"
+    api_key: "{{ .Env.CHOCOLATEY_API_KEY }}"
+    source_repo: "https://push.chocolatey.org/"
+    skip_publish: true
+
+# Linux packages (apt/deb, rpm, apk). nfpms generates the artifacts directly;
+# publishing to a hosted apt/yum repo (e.g. Cloudsmith) is configured below
+# under `publishers` and is gated on $CLOUDSMITH_API_KEY.
+nfpms:
+  - id: linux-packages
+    package_name: vaultpack
+    vendor: Skpow1234
+    homepage: https://github.com/Skpow1234/Vaultpack
+    maintainer: Skpow1234 <noreply@github.com>
+    description: |
+      Encrypt, hash, and sign data into portable .vpack bundles.
+    license: MIT
+    formats:
+      - deb
+      - rpm
+      - apk
+    bindir: /usr/bin
+    section: utils
+    priority: optional
+    file_name_template: "{{ .ConventionalFileName }}"
+
+# Optional: publish .deb/.rpm/.apk packages to a Cloudsmith-hosted repo.
+# Disabled when $CLOUDSMITH_API_KEY is empty.
+publishers:
+  - name: cloudsmith
+    ids:
+      - linux-packages
+    cmd: >-
+      sh -c '[ -z "$CLOUDSMITH_API_KEY" ] && echo "skipping cloudsmith publish (no API key)" && exit 0;
+      curl --user "$CLOUDSMITH_API_KEY:" --upload-file {{ .ArtifactPath }}
+      https://upload.cloudsmith.io/skpow1234/vaultpack/{{ .ArtifactName }}'
