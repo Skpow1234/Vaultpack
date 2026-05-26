@@ -29,12 +29,12 @@ func newAttestCmd() *cobra.Command {
 				return fmt.Errorf("--in is required")
 			}
 
-			// Support az:// for inspect-only (we need to read manifest + optional hash of payload).
+			// Support remote URIs for inspect-only (we need to read manifest + optional hash of payload).
 			displayName := inFile
-			if isAzure(inFile) {
-				tmpPath, err := azureDownload(inFile)
+			if isRemoteURI(inFile) {
+				tmpPath, err := remoteDownload(inFile)
 				if err != nil {
-					return fmt.Errorf("download from Azure: %w", err)
+					return fmt.Errorf("download from remote: %w", err)
 				}
 				defer os.Remove(tmpPath)
 				inFile = tmpPath
@@ -70,8 +70,8 @@ func newAttestCmd() *cobra.Command {
 				if displayName != inFile {
 					embedPath = displayName // might be az://...; then we can't embed locally
 				}
-				if isAzure(displayName) {
-					return fmt.Errorf("--embed is not supported for Azure URIs; use --out to save provenance locally")
+				if isRemoteURI(displayName) {
+					return fmt.Errorf("--embed is not supported for remote URIs; use --out to save provenance locally")
 				}
 				if err := bundle.AddProvenanceToBundle(embedPath, provBytes); err != nil {
 					return fmt.Errorf("embed provenance: %w", err)

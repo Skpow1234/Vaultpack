@@ -3,10 +3,12 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/Skpow1234/Vaultpack/internal/audit"
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
+	"github.com/Skpow1234/Vaultpack/internal/cloud"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
 	"github.com/Skpow1234/Vaultpack/internal/plugin"
 	"github.com/Skpow1234/Vaultpack/internal/util"
@@ -39,6 +41,23 @@ func newSignCmd() *cobra.Command {
 			}
 			if signingPriv == "" {
 				return fmt.Errorf("--signing-priv is required")
+			}
+
+			// Remote input (az://, s3://, gs://): download to temp, sign locally,
+			// then re-upload the signed bundle. HTTPS is read-only.
+			displayName := inFile
+			remoteURI := ""
+			if isRemoteURI(inFile) {
+				if !cloud.IsWritable(inFile) {
+					return fmt.Errorf("cannot sign read-only scheme: %q", inFile)
+				}
+				remoteURI = inFile
+				tmpPath, err := remoteDownload(inFile)
+				if err != nil {
+					return fmt.Errorf("download from remote: %w", err)
+				}
+				defer os.Remove(tmpPath)
+				inFile = tmpPath
 			}
 
 			// Read the full bundle.
@@ -121,17 +140,24 @@ func newSignCmd() *cobra.Command {
 				return fmt.Errorf("write signed bundle: %w", err)
 			}
 
+			// Re-upload the signed bundle back to its remote URI.
+			if remoteURI != "" {
+				if err := remoteUploadFile(inFile, remoteURI); err != nil {
+					return fmt.Errorf("upload signed bundle to remote: %w", err)
+				}
+			}
+
 			switch printer.Mode {
 			case OutputJSON:
 				return printer.JSON(map[string]any{
-					"bundle":    inFile,
+					"bundle":    displayName,
 					"signed":    true,
 					"algorithm": signAlgo,
 					"signed_at": ts,
 					"sig_b64":   util.B64Encode(sig),
 				})
 			default:
-				printer.Human("Signed:    %s", inFile)
+				printer.Human("Signed:    %s", displayName)
 				printer.Human("Algo:      %s", signAlgo)
 				if ts != "" {
 					printer.Human("Timestamp: %s", ts)

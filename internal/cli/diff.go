@@ -113,11 +113,11 @@ func newDiffCmd() *cobra.Command {
 	return cmd
 }
 
-// resolveBundlePath turns an Azure URI into a local temp file path and returns a cleanup func.
-// For local paths it returns the original path and a nil cleanup.
+// resolveBundlePath turns a remote URI (az/s3/gs/https) into a local temp file path
+// and returns a cleanup func. For local paths it returns the original path and a nil cleanup.
 func resolveBundlePath(in string) (string, func(), error) {
-	if isAzure(in) {
-		tmp, err := azureDownload(in)
+	if isRemoteURI(in) {
+		tmp, err := remoteDownload(in)
 		if err != nil {
 			return "", nil, err
 		}

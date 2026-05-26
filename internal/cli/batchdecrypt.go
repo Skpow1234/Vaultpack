@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
+	"github.com/Skpow1234/Vaultpack/internal/cloud"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
 	"github.com/Skpow1234/Vaultpack/internal/util"
 	"github.com/spf13/cobra"
@@ -47,27 +48,30 @@ Example:
 				return fmt.Errorf("--out-dir is required")
 			}
 
-			// Azure source: download blobs to temp dir.
-			var azSrcCleanup func()
-			if isAzure(srcDir) {
-				localDir, cleanup, err := azureDownloadDir(srcDir)
+			// Remote source: download all objects to temp dir.
+			var remoteSrcCleanup func()
+			if isRemoteURI(srcDir) {
+				localDir, cleanup, err := remoteDownloadDir(srcDir)
 				if err != nil {
-					return fmt.Errorf("download from Azure: %w", err)
+					return fmt.Errorf("download from remote: %w", err)
 				}
-				azSrcCleanup = cleanup
+				remoteSrcCleanup = cleanup
 				srcDir = localDir
 			}
 			defer func() {
-				if azSrcCleanup != nil {
-					azSrcCleanup()
+				if remoteSrcCleanup != nil {
+					remoteSrcCleanup()
 				}
 			}()
 
-			// Azure output: write to temp dir, upload after.
-			azOutURI := ""
-			if isAzure(outDir) {
-				azOutURI = outDir
-				tmpOut, err := os.MkdirTemp("", "vaultpack-az-bdec-out-*")
+			// Remote output: write to temp dir, upload after.
+			remoteOutURI := ""
+			if isRemoteURI(outDir) {
+				if !cloud.IsWritable(outDir) {
+					return fmt.Errorf("output scheme is read-only: %q", outDir)
+				}
+				remoteOutURI = outDir
+				tmpOut, err := os.MkdirTemp("", "vaultpack-remote-bdec-out-*")
 				if err != nil {
 					return fmt.Errorf("create temp output dir: %w", err)
 				}
@@ -263,17 +267,17 @@ Example:
 				printer.Error(err, "failed to write batch manifest")
 			}
 
-			// Upload results to Azure if output was az://.
-			if azOutURI != "" {
-				if err := azureUploadDir(outDir, azOutURI); err != nil {
-					return fmt.Errorf("upload batch results to Azure: %w", err)
+			// Upload results to the remote URI if --out-dir was az://, s3://, or gs://.
+			if remoteOutURI != "" {
+				if err := remoteUploadDir(outDir, remoteOutURI); err != nil {
+					return fmt.Errorf("upload batch results to remote: %w", err)
 				}
 			}
 
 			// Display output directory.
 			displayOutDir := outDir
-			if azOutURI != "" {
-				displayOutDir = azOutURI
+			if remoteOutURI != "" {
+				displayOutDir = remoteOutURI
 			}
 
 			// Output.

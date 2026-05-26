@@ -28,12 +28,12 @@ func newInspectCmd() *cobra.Command {
 				return fmt.Errorf("--in is required")
 			}
 
-			// Azure: download bundle from blob if az:// URI.
+			// Remote input (az://, s3://, gs://, https://): download to a temp file.
 			displayName := inFile
-			if isAzure(inFile) {
-				tmpPath, err := azureDownload(inFile)
+			if isRemoteURI(inFile) {
+				tmpPath, err := remoteDownload(inFile)
 				if err != nil {
-					return fmt.Errorf("download from Azure: %w", err)
+					return fmt.Errorf("download from remote: %w", err)
 				}
 				defer os.Remove(tmpPath)
 				inFile = tmpPath

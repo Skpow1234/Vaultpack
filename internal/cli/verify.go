@@ -40,6 +40,18 @@ func newVerifyCmd() *cobra.Command {
 				return fmt.Errorf("--pubkey is required")
 			}
 
+			// Remote input (az://, s3://, gs://, https://): download to temp file.
+			displayName := inFile
+			if isRemoteURI(inFile) {
+				tmpPath, err := remoteDownload(inFile)
+				if err != nil {
+					return fmt.Errorf("download from remote: %w", err)
+				}
+				defer os.Remove(tmpPath)
+				inFile = tmpPath
+			}
+			_ = displayName
+
 			// Read the full bundle.
 			br, err := bundle.Read(inFile)
 			if err != nil {
@@ -107,7 +119,7 @@ func newVerifyCmd() *cobra.Command {
 			switch printer.Mode {
 			case OutputJSON:
 				result := map[string]any{
-					"bundle":    inFile,
+					"bundle":    displayName,
 					"verified":  true,
 					"algorithm": signAlgo,
 				}
@@ -116,7 +128,7 @@ func newVerifyCmd() *cobra.Command {
 				}
 				return printer.JSON(result)
 			default:
-				printer.Human("Verified: %s", inFile)
+				printer.Human("Verified: %s", displayName)
 				printer.Human("Algo:     %s", signAlgo)
 				if signedAt != "" {
 					printer.Human("Signed:   %s", signedAt)

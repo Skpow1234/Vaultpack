@@ -9,6 +9,7 @@ import (
 
 	"github.com/Skpow1234/Vaultpack/internal/audit"
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
+	"github.com/Skpow1234/Vaultpack/internal/cloud"
 	"github.com/Skpow1234/Vaultpack/internal/config"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
 	"github.com/Skpow1234/Vaultpack/internal/kms"
@@ -54,26 +55,29 @@ func newDecryptCmd() *cobra.Command {
 				return fmt.Errorf("--out or --stdout is required")
 			}
 
-			// Azure: download input bundle from blob if az:// URI.
-			var azInputCleanup func()
-			if isAzure(inFile) {
-				tmpPath, err := azureDownload(inFile)
+			// Remote input (az://, s3://, gs://, https://): download to a temp file.
+			var remoteInputCleanup func()
+			if isRemoteURI(inFile) {
+				tmpPath, err := remoteDownload(inFile)
 				if err != nil {
-					return fmt.Errorf("download from Azure: %w", err)
+					return fmt.Errorf("download from remote: %w", err)
 				}
-				azInputCleanup = func() { os.Remove(tmpPath) }
+				remoteInputCleanup = func() { os.Remove(tmpPath) }
 				inFile = tmpPath
 			}
 			defer func() {
-				if azInputCleanup != nil {
-					azInputCleanup()
+				if remoteInputCleanup != nil {
+					remoteInputCleanup()
 				}
 			}()
 
-			// Track whether the output should be uploaded to Azure.
-			azOutURI := ""
-			if isAzure(outFile) {
-				azOutURI = outFile
+			// Track whether the output should be uploaded to a remote URI.
+			remoteOutURI := ""
+			if isRemoteURI(outFile) {
+				if !cloud.IsWritable(outFile) {
+					return fmt.Errorf("output scheme is read-only: %q", outFile)
+				}
+				remoteOutURI = outFile
 			}
 
 			// When writing to stdout, redirect printer to stderr.
@@ -343,10 +347,9 @@ func newDecryptCmd() *cobra.Command {
 			}
 
 			// Write plaintext.
-			if azOutURI != "" {
-				// Upload directly to Azure.
-				if err := azureUploadBytes(plaintext, azOutURI); err != nil {
-					return fmt.Errorf("upload to Azure: %w", err)
+			if remoteOutURI != "" {
+				if err := remoteUploadBytes(plaintext, remoteOutURI); err != nil {
+					return fmt.Errorf("upload to remote: %w", err)
 				}
 			} else {
 				var output io.Writer

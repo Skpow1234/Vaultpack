@@ -12,6 +12,7 @@ import (
 
 	"github.com/Skpow1234/Vaultpack/internal/audit"
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
+	"github.com/Skpow1234/Vaultpack/internal/cloud"
 	"github.com/Skpow1234/Vaultpack/internal/config"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
 	"github.com/Skpow1234/Vaultpack/internal/kms"
@@ -150,28 +151,31 @@ func newProtectCmd() *cobra.Command {
 				return fmt.Errorf("unsupported KDF %q; supported: argon2id, scrypt, pbkdf2-sha256", kdfAlgo)
 			}
 
-			// Azure: download input from blob if az:// URI.
-			var azInputCleanup func()
-			if isAzure(inFile) {
-				tmpPath, err := azureDownload(inFile)
+			// Remote input (az://, s3://, gs://, https://): download to a temp file
+			// and use it as the local input for the rest of the pipeline.
+			var remoteInputCleanup func()
+			if isRemoteURI(inFile) {
+				tmpPath, err := remoteDownload(inFile)
 				if err != nil {
-					return fmt.Errorf("download from Azure: %w", err)
+					return fmt.Errorf("download from remote: %w", err)
 				}
-				azInputCleanup = func() { os.Remove(tmpPath) }
-				// Preserve original URI for display, use temp path for local processing.
+				remoteInputCleanup = func() { os.Remove(tmpPath) }
 				inFile = tmpPath
 			}
 			defer func() {
-				if azInputCleanup != nil {
-					azInputCleanup()
+				if remoteInputCleanup != nil {
+					remoteInputCleanup()
 				}
 			}()
 
-			// Track whether the output should be uploaded to Azure.
-			azOutURI := ""
-			if isAzure(outFile) {
-				azOutURI = outFile
-				// We'll write locally to a temp file, then upload.
+			// Remote output (az://, s3://, gs://): write locally to a temp file
+			// then upload. HTTPS/HTTP are not writable.
+			remoteOutURI := ""
+			if isRemoteURI(outFile) {
+				if !cloud.IsWritable(outFile) {
+					return fmt.Errorf("output scheme is read-only: %q", outFile)
+				}
+				remoteOutURI = outFile
 			}
 
 			// Determine input source.
@@ -212,20 +216,20 @@ func newProtectCmd() *cobra.Command {
 				}
 			}
 
-			// If output is Azure, use a temp file as the local write target.
-			var azOutCleanup func()
-			if azOutURI != "" {
-				tmpOut, err := os.CreateTemp("", "vaultpack-az-out-*.vpack")
+			// If output is remote, use a temp file as the local write target.
+			var remoteOutCleanup func()
+			if remoteOutURI != "" {
+				tmpOut, err := os.CreateTemp("", "vaultpack-remote-out-*.vpack")
 				if err != nil {
 					return fmt.Errorf("create temp output: %w", err)
 				}
 				tmpOut.Close()
 				outFile = tmpOut.Name()
-				azOutCleanup = func() { os.Remove(tmpOut.Name()) }
+				remoteOutCleanup = func() { os.Remove(tmpOut.Name()) }
 			}
 			defer func() {
-				if azOutCleanup != nil {
-					azOutCleanup()
+				if remoteOutCleanup != nil {
+					remoteOutCleanup()
 				}
 			}()
 			// Default key output path.
@@ -678,10 +682,10 @@ func newProtectCmd() *cobra.Command {
 				return fmt.Errorf("write bundle: %w", err)
 			}
 
-			// Upload to Azure if the output URI was az://.
-			if azOutURI != "" {
-				if err := azureUploadFile(outFile, azOutURI); err != nil {
-					return fmt.Errorf("upload bundle to Azure: %w", err)
+			// Upload to the remote URI if --out was az://, s3://, or gs://.
+			if remoteOutURI != "" {
+				if err := remoteUploadFile(outFile, remoteOutURI); err != nil {
+					return fmt.Errorf("upload bundle to remote: %w", err)
 				}
 			}
 
@@ -721,8 +725,8 @@ func newProtectCmd() *cobra.Command {
 			signed := signFlag
 			_ = resolvedSignAlgo // used below
 			outDesc := outFile
-			if azOutURI != "" {
-				outDesc = azOutURI
+			if remoteOutURI != "" {
+				outDesc = remoteOutURI
 			}
 			if useStdout {
 				outDesc = "stdout"
