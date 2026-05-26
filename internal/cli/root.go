@@ -88,6 +88,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newProtectCmd())
 	root.AddCommand(newDecryptCmd())
 	root.AddCommand(newInspectCmd())
+	root.AddCommand(newDiffCmd())
 	root.AddCommand(newKeygenCmd())
 	root.AddCommand(newSignCmd())
 	root.AddCommand(newVerifyCmd())
