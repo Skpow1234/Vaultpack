@@ -132,23 +132,23 @@ func EncryptStreamParallel(r io.Reader, w io.Writer, key, aad []byte, chunkSize 
 		close(results)
 	}()
 
-	// Writer: gather results, reorder by original index (with last-chunk first-bit handling), write in order.
+	// Writer: gather results, reorder by original index, and write in order.
+	// We store all chunks (including the last) by true index in `pending` and
+	// drain contiguous prefixes. The last chunk's index is remembered so we can
+	// stop after writing it.
 	pending := make(map[uint64][]byte)
 	var nextIdx uint64
 	var totalWritten int64
 	var lastTag []byte
-	lastWritten := false
+	lastIdx := ^uint64(0) // sentinel: unknown
 	for r := range results {
-		// Strip the lastChunkFlag to get true index, remember whether it's last.
 		isLast := (r.idx & lastChunkFlag) != 0
 		idx := r.idx &^ lastChunkFlag
 		if isLast {
-			// Final chunk; store separately. We'll write it after all non-final chunks.
-			pending[lastChunkFlag] = r.sealed
-		} else {
-			pending[idx] = r.sealed
+			lastIdx = idx
 		}
-		// Drain any contiguous prefix.
+		pending[idx] = r.sealed
+
 		for {
 			seg, ok := pending[nextIdx]
 			if !ok {
@@ -163,26 +163,16 @@ func EncryptStreamParallel(r io.Reader, w io.Writer, key, aad []byte, chunkSize 
 			delete(pending, nextIdx)
 			nextIdx++
 		}
-		// If only the last chunk remains and nothing else is pending, write it.
-		if len(pending) == 1 {
-			if seg, ok := pending[lastChunkFlag]; ok {
-				n, err := w.Write(seg)
-				if err != nil {
-					return nil, fmt.Errorf("write final chunk: %w", err)
-				}
-				totalWritten += int64(n)
-				lastTag = seg[len(seg)-tagSize:]
-				delete(pending, lastChunkFlag)
-				lastWritten = true
-			}
-		}
 	}
 
 	if readErr != nil {
 		return nil, readErr
 	}
-	if !lastWritten && len(pending) > 0 {
-		// Defensive: should never reach here, but flush anything left.
+	// After all workers are done, lastIdx must be known and equal to nextIdx-1.
+	if lastIdx == ^uint64(0) || nextIdx == 0 || nextIdx-1 != lastIdx {
+		return nil, fmt.Errorf("%w: ordering bug: nextIdx=%d lastIdx=%d pending=%d", util.ErrDecryptFailed, nextIdx, lastIdx, len(pending))
+	}
+	if len(pending) > 0 {
 		return nil, fmt.Errorf("%w: %d chunks left unwritten", util.ErrDecryptFailed, len(pending))
 	}
 
