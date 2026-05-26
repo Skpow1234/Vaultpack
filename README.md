@@ -317,6 +317,7 @@ Supported algorithms:
 | Algorithm             | Purpose    | Notes                                      |
 | --------------------- | ---------- | ------------------------------------------ |
 | `ed25519`             | Signing    | Fast, compact (default)                    |
+| `ed448`               | Signing    | RFC 8032 Edwards curve over Goldilocks (higher security margin) |
 | `ecdsa-p256`          | Signing    | NIST P-256 curve                           |
 | `ecdsa-p384`          | Signing    | NIST P-384 curve                           |
 | `rsa-pss-2048`        | Signing    | RSA-PSS 2048-bit                           |
@@ -330,7 +331,7 @@ Supported algorithms:
 | `ml-kem-768`          | Encryption | NIST FIPS 203 ML-KEM (post-quantum)        |
 | `ml-kem-1024`         | Encryption | NIST FIPS 203 ML-KEM (post-quantum)        |
 
-Keys are saved in PEM format (PKCS#8 private, PKIX public; ML-KEM and ML-DSA use custom PEM types).
+Keys are saved in PEM format (PKCS#8 private, PKIX public; ML-KEM, ML-DSA, and Ed448 use custom PEM block types).
 
 ### `sign` -- Sign a `.vpack` bundle
 
@@ -351,6 +352,7 @@ Supported signing algorithms:
 | Algorithm         | Key Type       | Signature Format | Notes                            |
 | ----------------- | -------------- | ---------------- | -------------------------------- |
 | `ed25519`         | Ed25519        | Raw (64 bytes)   | Fast, compact, default           |
+| `ed448`           | Ed448 (RFC 8032)| Raw (114 bytes) | Edwards curve over Goldilocks, higher security margin |
 | `ecdsa-p256`      | ECDSA P-256    | ASN.1 DER        | NIST curve, widely supported     |
 | `ecdsa-p384`      | ECDSA P-384    | ASN.1 DER        | Stronger NIST curve              |
 | `rsa-pss-2048`    | RSA 2048-bit   | RSA-PSS/SHA-256  | Modern RSA padding               |
@@ -575,7 +577,7 @@ artifact.vpack
 
 - **AEAD encryption**: AES-256-GCM, ChaCha20-Poly1305, XChaCha20-Poly1305
 - **Hashing**: SHA-256, SHA-512, SHA3-256, SHA3-512, BLAKE2b-256, BLAKE2b-512, BLAKE3
-- **Signing**: Ed25519, ECDSA (P-256/P-384), RSA-PSS (2048/4096), ML-DSA-65/87 (FIPS 204, post-quantum)
+- **Signing**: Ed25519, Ed448 (RFC 8032), ECDSA (P-256/P-384), RSA-PSS (2048/4096), ML-DSA-65/87 (FIPS 204, post-quantum)
 - **KDFs**: Argon2id (t=3, m=64 MB, p=4), scrypt (N=32768, r=8, p=1), PBKDF2-SHA256 (600k iter)
 - **Hybrid encryption**: X25519+HKDF+AES-256-GCM, ECIES-P256, RSA-OAEP-SHA256, ML-KEM-768/1024 (FIPS 203, post-quantum)
 
