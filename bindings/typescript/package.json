@@ -1,0 +1,31 @@
+{
+  "name": "@vaultpack/wasm",
+  "version": "0.1.0",
+  "description": "WebAssembly bindings for VaultPack — encrypt/decrypt/sign/verify .vpack bundles in the browser or Node.js",
+  "type": "module",
+  "main": "vaultpack-loader.js",
+  "types": "vaultpack.d.ts",
+  "files": [
+    "vaultpack-loader.js",
+    "vaultpack.d.ts",
+    "vaultpack.wasm",
+    "wasm_exec.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "vaultpack",
+    "wasm",
+    "encryption",
+    "post-quantum",
+    "signing"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Skpow1234/Vaultpack.git"
+  },
+  "homepage": "https://github.com/Skpow1234/Vaultpack/tree/main/bindings/typescript"
+}

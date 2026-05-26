@@ -53,3 +53,8 @@ NUL
 
 # VaultPack bundles (don't commit test outputs)
 *.vpack
+
+# Bindings staged native artifacts (built locally via go build)
+bindings/python/vaultpack/libvaultpack.*
+bindings/typescript/vaultpack.wasm
+bindings/typescript/wasm_exec.js
