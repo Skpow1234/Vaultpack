@@ -553,6 +553,52 @@ vaultpack verify  --in https://example.com/release.vpack --pubkey publisher.pub
 
 > GCS uses Application Default Credentials only; no flags are needed beyond the standard ADC env vars / `gcloud auth application-default login`.
 
+### Key rotation & rewrap
+
+VaultPack supports four rotation operations for the data encryption key (DEK)
+of a bundle. Each one clears any prior signature on the manifest (since the
+manifest changes) — re-sign with `vaultpack sign` afterward.
+
+| Command              | Payload re-encrypted? | DEK changes? | Use case                                                                  |
+| -------------------- | --------------------- | ------------ | ------------------------------------------------------------------------- |
+| `rewrap`             | no                    | no           | Rotate the **KMS key** that wraps the DEK. Fast; no plaintext access.     |
+| `rotate-key`         | **yes**               | yes          | Rotate after suspected DEK compromise, or to fully revoke a recipient.    |
+| `add-recipient`      | no                    | no           | Wrap the existing DEK for additional public-key recipients.               |
+| `remove-recipient`   | no                    | no           | Drop a recipient entry from the manifest. Combine with `rotate-key` for full revocation. |
+
+```bash
+# Rotate the KMS key wrapping the DEK (payload untouched)
+vaultpack rewrap --in data.vpack \
+    --kms-provider aws \
+    --from-kms-key-id arn:aws:kms:us-east-1:111111111111:key/old \
+    --to-kms-key-id   arn:aws:kms:us-east-1:111111111111:key/new
+
+# Full DEK rotation (re-encrypts payload under fresh DEK)
+vaultpack rotate-key --in data.vpack --old-key data.key --new-key-out data.new.key
+vaultpack rotate-key --in data.vpack --old-password "old" --new-password "new"
+vaultpack rotate-key --in data.vpack --kms-provider aws   # reuses same KMS key id
+vaultpack rotate-key --in data.vpack --old-privkey alice.key --recipient alice.pub --recipient bob.pub
+
+# Add a recipient to an existing bundle
+vaultpack add-recipient --in data.vpack \
+    --privkey alice.key \
+    --recipient bob.pub --recipient carol.pub
+
+# Remove a recipient (does NOT re-encrypt; the DEK is unchanged)
+vaultpack remove-recipient --in data.vpack --recipient bob.pub
+# To fully revoke bob, follow with rotate-key:
+vaultpack rotate-key --in data.vpack --old-privkey alice.key --recipient alice.pub --recipient carol.pub
+```
+
+Every rotation appends a `rotated_from` entry to the manifest with:
+
+- `operation` — one of `rewrap`, `rotate-key`, `add-recipient`, `remove-recipient`,
+- `rotated_at` — RFC 3339 timestamp,
+- `bundle_hash` — SHA-256 of the previous bundle bytes, providing a tamper-evident lineage,
+- `notes` — context such as old/new KMS key IDs or count of added/removed recipients.
+
+`vaultpack inspect` displays the full chain.
+
 ### Audit trail and integrity
 
 **Audit log**: Use `--audit-log <path>` or `VAULTPACK_AUDIT_LOG` to append a JSON-lines log of every operation (protect, decrypt, sign, verify, attest, seal, etc.). Each line includes timestamp, operation, input/output paths, key fingerprint, user, hostname, and success/error.
