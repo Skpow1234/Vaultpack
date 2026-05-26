@@ -142,6 +142,19 @@ func newInspectCmd() *cobra.Command {
 					printer.Human("  Signed:   %s", *m.SignedAt)
 				}
 			}
+			if len(m.RotatedFrom) > 0 {
+				printer.Human("")
+				printer.Human("Rotation History: %d step(s)", len(m.RotatedFrom))
+				for i, e := range m.RotatedFrom {
+					printer.Human("  [%d] %s @ %s", i, e.Operation, e.RotatedAt)
+					if e.BundleHash != "" {
+						printer.Human("      prev-bundle-sha256: %s", e.BundleHash)
+					}
+					if e.Notes != "" {
+						printer.Human("      notes: %s", e.Notes)
+					}
+				}
+			}
 			printer.Human("")
 			printer.Human("Ciphertext:")
 			printer.Human("  Size:     %d bytes", m.Ciphertext.Size)
