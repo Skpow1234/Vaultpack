@@ -105,13 +105,15 @@ vaultpack seal --dir ./bundles/ --out merkle-root.txt
 vaultpack verify-seal --dir ./bundles/ --root $(cat merkle-root.txt)
 vaultpack audit export --format csv --operation protect
 
-# Azure Blob Storage: encrypt directly from/to Azure
+# Cloud storage: read/write directly from Azure, AWS S3, GCS, or HTTPS
 vaultpack protect --in az://mycontainer/data.csv --out az://mycontainer/data.vpack --azure-account mystorageaccount
-vaultpack decrypt --in az://mycontainer/data.vpack --out az://mycontainer/data.csv --key data.key --azure-account mystorageaccount
+vaultpack protect --in s3://mybucket/data.csv     --out s3://mybucket/data.vpack     --aws-region us-east-1
+vaultpack protect --in gs://mybucket/data.csv     --out gs://mybucket/data.vpack
+vaultpack inspect --in https://example.com/release.vpack   # HTTPS is read-only
 
-# Azure batch operations
-vaultpack batch-protect --dir az://mycontainer/exports/ --out-dir az://mycontainer/encrypted/ --azure-account mystorageaccount
-vaultpack batch-decrypt --dir az://mycontainer/encrypted/ --out-dir az://mycontainer/decrypted/ --key batch.key --azure-account mystorageaccount
+# Cloud batch operations (any of az://, s3://, gs://)
+vaultpack batch-protect --dir s3://mybucket/exports/ --out-dir s3://mybucket/encrypted/ --aws-region us-east-1
+vaultpack batch-decrypt --dir gs://mybucket/encrypted/ --out-dir gs://mybucket/decrypted/ --key batch.key
 
 # Pipeline: encrypt from stdin, decrypt to stdout
 cat config.json | vaultpack protect --stdin --out config.vpack --key-out config.key
@@ -499,41 +501,51 @@ vaultpack batch-inspect --dir ./encrypted/ [--json]
 
 Displays a summary of every `.vpack` bundle in the directory, including cipher, hash algorithm, and input file info. If a `batch-manifest.json` is present, its operation summary is also shown.
 
-### Azure Blob Storage
+### Cloud storage (Azure, S3, GCS, HTTPS)
 
-VaultPack supports reading from and writing to Azure Blob Storage using the `az://` URI scheme.
+VaultPack accepts cloud URIs anywhere a local path is allowed for `--in` / `--out` (and `--dir` / `--out-dir` for batch operations). Bundles are downloaded to a private temp file, processed locally, and re-uploaded — so all crypto runs in-process on local data.
+
+| Scheme    | Backend                | Read | Write | Default credential chain                                                         |
+| --------- | ---------------------- | ---- | ----- | -------------------------------------------------------------------------------- |
+| `az://`   | Azure Blob Storage     | yes  | yes   | Connection string → `azidentity.DefaultAzureCredential` (managed identity, CLI)  |
+| `s3://`   | AWS S3                 | yes  | yes   | AWS SDK v2 default chain (env, shared config, IAM role, EC2 IMDSv2)              |
+| `gs://`   | Google Cloud Storage   | yes  | yes   | Google Application Default Credentials (GOOGLE_APPLICATION_CREDENTIALS, gcloud)  |
+| `https://`, `http://` | Generic HTTP  | yes  | **no** | Optional `VAULTPACK_HTTP_BEARER` or `VAULTPACK_HTTP_USER`/`VAULTPACK_HTTP_PASS` |
 
 ```bash
-# Encrypt a file from Azure, write the bundle back to Azure
-vaultpack protect --in az://container/input.csv --out az://container/output.vpack --azure-account myaccount
+# Azure
+vaultpack protect --in az://container/in.csv --out az://container/out.vpack --azure-account myaccount
 
-# Decrypt a bundle from Azure
-vaultpack decrypt --in az://container/output.vpack --out az://container/result.csv --key file.key --azure-account myaccount
+# AWS S3
+vaultpack protect --in s3://mybucket/in.csv  --out s3://mybucket/out.vpack --aws-region us-east-1
 
-# Inspect a bundle on Azure
-vaultpack inspect --in az://container/output.vpack --azure-account myaccount
+# Google Cloud Storage
+vaultpack protect --in gs://mybucket/in.csv  --out gs://mybucket/out.vpack
 
-# Batch protect from Azure to Azure
-vaultpack batch-protect --dir az://container/data/ --out-dir az://container/encrypted/ --azure-account myaccount
-
-# Using a connection string instead
-export AZURE_STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net"
-vaultpack protect --in az://container/file.csv --out az://container/file.vpack
+# HTTPS read-only (e.g. fetching a release bundle)
+vaultpack inspect --in https://example.com/release.vpack
+vaultpack verify  --in https://example.com/release.vpack --pubkey publisher.pub
 ```
 
-**URI format**: `az://container/path/to/blob`
+**URI formats**
 
-**Authentication** (in priority order):
+- `az://container/path/to/blob`
+- `s3://bucket/path/to/object`
+- `gs://bucket/path/to/object`
+- `https://host/path` or `http://host/path`
 
-1. `--azure-connection-string` flag or `AZURE_STORAGE_CONNECTION_STRING` env var
-2. `azidentity.DefaultAzureCredential` (managed identity, env vars, Azure CLI token)
+**CLI flags**
 
-**Account resolution**: `--azure-account` flag or `AZURE_STORAGE_ACCOUNT` env var. Required when not using a connection string.
+| Flag                        | Description                                                                       |
+| --------------------------- | --------------------------------------------------------------------------------- |
+| `--azure-account`           | Azure storage account (or `AZURE_STORAGE_ACCOUNT` env)                            |
+| `--azure-connection-string` | Azure connection string (or `AZURE_STORAGE_CONNECTION_STRING` env)                |
+| `--aws-region`              | AWS region for `s3://` (or `AWS_REGION` / `AWS_DEFAULT_REGION` env)               |
+| `--aws-profile`             | AWS shared config profile (or `AWS_PROFILE` env)                                  |
+| `--s3-endpoint`             | Override S3 endpoint URL (MinIO, LocalStack, S3-compatible services)              |
+| `--s3-path-style`           | Use path-style S3 addressing (required by some S3-compatible services)            |
 
-| Flag                        | Description                                                         |
-| --------------------------- | ------------------------------------------------------------------- |
-| `--azure-account`           | Azure storage account name (or `AZURE_STORAGE_ACCOUNT` env var)     |
-| `--azure-connection-string` | Azure storage connection string (or `AZURE_STORAGE_CONNECTION_STRING` env var) |
+> GCS uses Application Default Credentials only; no flags are needed beyond the standard ADC env vars / `gcloud auth application-default login`.
 
 ### Audit trail and integrity
 

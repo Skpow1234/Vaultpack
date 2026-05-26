@@ -76,6 +76,12 @@ func NewRootCmd() *cobra.Command {
 	pf.StringVar(&azureAccountName, "azure-account", "", "Azure storage account name (or AZURE_STORAGE_ACCOUNT env)")
 	pf.StringVar(&azureConnectionString, "azure-connection-string", "", "Azure storage connection string (or AZURE_STORAGE_CONNECTION_STRING env)")
 
+	// AWS S3 flags (also resolved from AWS_REGION/AWS_PROFILE env vars and the SDK default credential chain).
+	pf.StringVar(&awsRegion, "aws-region", "", "AWS region for s3:// URIs (or AWS_REGION env)")
+	pf.StringVar(&awsProfile, "aws-profile", "", "AWS shared config profile (or AWS_PROFILE env)")
+	pf.StringVar(&awsS3Endpoint, "s3-endpoint", "", "Override S3 endpoint URL (MinIO, LocalStack)")
+	pf.BoolVar(&awsS3PathStyle, "s3-path-style", false, "Use path-style S3 addressing")
+
 	// Audit trail.
 	pf.StringVar(&flagAuditLog, "audit-log", "", "Append-only audit log file (or VAULTPACK_AUDIT_LOG env)")
 

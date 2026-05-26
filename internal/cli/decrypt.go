@@ -370,8 +370,8 @@ func newDecryptCmd() *cobra.Command {
 
 			// Output.
 			outDesc := outFile
-			if azOutURI != "" {
-				outDesc = azOutURI
+			if remoteOutURI != "" {
+				outDesc = remoteOutURI
 			}
 			if useStdout {
 				outDesc = "stdout"

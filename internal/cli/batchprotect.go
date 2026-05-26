@@ -319,8 +319,8 @@ Example:
 
 			// Display output directory.
 			displayOutDir := outDir
-			if azOutURI != "" {
-				displayOutDir = azOutURI
+			if remoteOutURI != "" {
+				displayOutDir = remoteOutURI
 			}
 
 			// Output.
