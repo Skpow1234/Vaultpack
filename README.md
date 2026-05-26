@@ -324,6 +324,7 @@ Supported algorithms:
 | `rsa-pss-4096`        | Signing    | RSA-PSS 4096-bit                           |
 | `ml-dsa-65`           | Signing    | NIST FIPS 204 ML-DSA (post-quantum)        |
 | `ml-dsa-87`           | Signing    | NIST FIPS 204 ML-DSA (post-quantum)        |
+| `slh-dsa-128s`        | Signing    | NIST FIPS 205 SLH-DSA (SPHINCS+, post-quantum, hash-based) |
 | `x25519-aes-256-gcm`  | Encryption | X25519 ECDH + HKDF + AES-256-GCM           |
 | `ecies-p256`          | Encryption | ECIES with P-256 ECDH + HKDF               |
 | `rsa-oaep-2048`       | Encryption | RSA-OAEP-SHA256 key wrapping (2048-bit)    |
@@ -359,6 +360,7 @@ Supported signing algorithms:
 | `rsa-pss-4096`    | RSA 4096-bit   | RSA-PSS/SHA-256  | Higher security margin           |
 | `ml-dsa-65`       | ML-DSA-65      | FIPS 204         | Post-quantum (NIST)              |
 | `ml-dsa-87`       | ML-DSA-87      | FIPS 204         | Post-quantum (NIST)              |
+| `slh-dsa-128s`    | SLH-DSA-SHA2-128s | FIPS 205      | Post-quantum hash-based (SPHINCS+); large sigs |
 
 ### `verify` -- Verify a bundle signature
 
@@ -577,7 +579,7 @@ artifact.vpack
 
 - **AEAD encryption**: AES-256-GCM, ChaCha20-Poly1305, XChaCha20-Poly1305
 - **Hashing**: SHA-256, SHA-512, SHA3-256, SHA3-512, BLAKE2b-256, BLAKE2b-512, BLAKE3
-- **Signing**: Ed25519, Ed448 (RFC 8032), ECDSA (P-256/P-384), RSA-PSS (2048/4096), ML-DSA-65/87 (FIPS 204, post-quantum)
+- **Signing**: Ed25519, Ed448 (RFC 8032), ECDSA (P-256/P-384), RSA-PSS (2048/4096), ML-DSA-65/87 (FIPS 204, post-quantum), SLH-DSA-128s (FIPS 205 / SPHINCS+, post-quantum hash-based)
 - **KDFs**: Argon2id (t=3, m=64 MB, p=4), scrypt (N=32768, r=8, p=1), PBKDF2-SHA256 (600k iter)
 - **Hybrid encryption**: X25519+HKDF+AES-256-GCM, ECIES-P256, RSA-OAEP-SHA256, ML-KEM-768/1024 (FIPS 203, post-quantum)
 
