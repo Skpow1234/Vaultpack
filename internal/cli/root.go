@@ -110,6 +110,11 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newAuditCmd())
 	root.AddCommand(newMenuCmd())
 	root.AddCommand(newConfigCmd())
+	// M22: rotation & rewrap.
+	root.AddCommand(newRewrapCmd())
+	root.AddCommand(newRotateKeyCmd())
+	root.AddCommand(newAddRecipientCmd())
+	root.AddCommand(newRemoveRecipientCmd())
 
 	return root
 }
