@@ -138,6 +138,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newReportCmd())
 	root.AddCommand(newMenuCmd())
 	root.AddCommand(newConfigCmd())
+	root.AddCommand(newDoctorCmd())
 	// M22: rotation & rewrap.
 	root.AddCommand(newRewrapCmd())
 	root.AddCommand(newRotateKeyCmd())
@@ -149,6 +150,8 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newServeCmd())
 	// M27: tamper-evident repo.
 	root.AddCommand(newRepoCmd())
+	// M30: shell completions.
+	root.AddCommand(newCompletionCmd(root))
 
 	return root
 }
