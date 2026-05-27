@@ -832,6 +832,48 @@ vaultpack policy show     --policy policy.yaml
 Every policy denial is recorded in the audit log as a `policy-deny` entry with
 the offending operation, matched rule name, and reason.
 
+## Tamper-Evident Repo (`vaultpack repo`)
+
+`vaultpack repo` maintains an append-only Merkle history log of `.vpack`
+bundles. Each `repo add` appends a leaf, records a signed root, and can
+optionally anchor that root in Sigstore Rekor.
+
+```bash
+# Create a signed repo.
+vaultpack keygen --out repo-signing.key
+vaultpack repo init --dir ./vp-repo --signing-key repo-signing.key --store-bundles
+
+# Add bundles.
+vaultpack repo add --dir ./vp-repo --bundle secret.vpack --signing-key repo-signing.key --copy
+
+# Inspect and verify the chain.
+vaultpack repo list --dir ./vp-repo
+vaultpack repo verify --dir ./vp-repo --verify-key repo-signing.pub
+
+# Optional public anchoring for the latest signed root.
+vaultpack repo anchor --dir ./vp-repo --signing-key repo-signing.key --rekor-url https://rekor.sigstore.dev
+```
+
+Repo layout:
+
+```text
+vp-repo/
+├── repo.json        # schema, created_at, signing-key fingerprint
+├── entries.jsonl    # append-only bundle entries
+├── roots.jsonl      # append-only signed Merkle roots
+└── bundles/         # optional stored copies of .vpack bundles
+```
+
+The Merkle tree uses RFC 6962-style domain separation:
+
+- `leaf = SHA-256(0x00 || canonical-entry)`
+- `node = SHA-256(0x01 || left || right)`
+
+`repo verify` replays `entries.jsonl`, recomputes every root in
+`roots.jsonl`, checks the `prev_root` chain, and verifies signatures when
+`--verify-key` is supplied. Any modification to a historical entry, root,
+timestamp, or bundle hash causes verification to fail.
+
 ## Service Mode (`vaultpack serve`)
 
 `vaultpack serve` runs a long-running HTTP API exposing the SDK to remote
