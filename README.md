@@ -914,6 +914,38 @@ Reserved for platform-specific builds:
 Reserved schemes return a clear “not available in this build” error
 instead of silently falling back to files.
 
+## Reports & Tamper-Evident Audit Logs
+
+Audit logs are JSONL and now include a hash chain:
+
+```json
+{
+  "operation": "protect",
+  "success": true,
+  "prev_hash": "...",
+  "entry_hash": "...",
+  "ocsf_class": "encryption_activity"
+}
+```
+
+Every new entry hashes the entry content with `entry_hash` cleared and
+links to the previous chained entry via `prev_hash`. This lets operators
+detect edits, deletions, and reordering:
+
+```bash
+vaultpack audit verify --log audit.jsonl
+```
+
+Compliance summaries are generated with `vaultpack report`:
+
+```bash
+vaultpack report --audit-log audit.jsonl --format json --out report.json
+vaultpack report --audit-log audit.jsonl --format csv  --out report.csv
+```
+
+Reports include total entries, successes/failures, counts by operation,
+counts by OCSF-style class, first/last timestamp, and hash-chain status.
+
 ## Service Mode (`vaultpack serve`)
 
 `vaultpack serve` runs a long-running HTTP API exposing the SDK to remote

@@ -16,6 +16,42 @@ func newAuditCmd() *cobra.Command {
 		Long:  "Parent command for audit log export. Use 'vaultpack audit export --format csv' to export the audit log.",
 	}
 	cmd.AddCommand(newAuditExportCmd())
+	cmd.AddCommand(newAuditVerifyCmd())
+	return cmd
+}
+
+func newAuditVerifyCmd() *cobra.Command {
+	var logPath string
+	cmd := &cobra.Command{
+		Use:   "verify",
+		Short: "Verify the tamper-evident audit hash chain",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if logPath == "" {
+				logPath = flagAuditLog
+				if logPath == "" {
+					logPath = os.Getenv("VAULTPACK_AUDIT_LOG")
+				}
+			}
+			if logPath == "" {
+				return fmt.Errorf("audit log path required: set --audit-log, --log, or VAULTPACK_AUDIT_LOG")
+			}
+			res, err := audit.VerifyFile(logPath)
+			if err != nil {
+				return err
+			}
+			printer := NewPrinter(flagJSON, flagQuiet)
+			if flagJSON {
+				return printer.JSON(res)
+			}
+			if !res.OK {
+				printer.Human("FAIL entries=%d bad_line=%d reason=%s", res.Entries, res.BadLine, res.Reason)
+				os.Exit(1)
+			}
+			printer.Human("OK entries=%d last_hash=%s", res.Entries, res.LastHash)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&logPath, "log", "", "audit log file (default: --audit-log or VAULTPACK_AUDIT_LOG)")
 	return cmd
 }
 
