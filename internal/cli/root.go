@@ -135,6 +135,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newSealCmd())
 	root.AddCommand(newVerifySealCmd())
 	root.AddCommand(newAuditCmd())
+	root.AddCommand(newReportCmd())
 	root.AddCommand(newMenuCmd())
 	root.AddCommand(newConfigCmd())
 	// M22: rotation & rewrap.
