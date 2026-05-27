@@ -12,6 +12,7 @@ import (
 	"github.com/Skpow1234/Vaultpack/internal/cloud"
 	"github.com/Skpow1234/Vaultpack/internal/config"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
+	"github.com/Skpow1234/Vaultpack/internal/keysource"
 	"github.com/Skpow1234/Vaultpack/internal/kms"
 	"github.com/Skpow1234/Vaultpack/internal/plugin"
 	"github.com/Skpow1234/Vaultpack/internal/util"
@@ -23,6 +24,7 @@ func newDecryptCmd() *cobra.Command {
 		inFile       string
 		outFile      string
 		keyFile      string
+		keySource    string
 		aadStr       string
 		useStdout    bool
 		password     string
@@ -119,8 +121,11 @@ func newDecryptCmd() *cobra.Command {
 			if usePassword {
 				modes++
 			}
-			if keyFile != "" {
+			if keyFile != "" || keySource != "" {
 				modes++
+			}
+			if keyFile != "" && keySource != "" {
+				return fmt.Errorf("--key and --key-source are mutually exclusive")
 			}
 			if usePrivKey {
 				modes++
@@ -129,7 +134,7 @@ func newDecryptCmd() *cobra.Command {
 				modes++
 			}
 			if modes > 1 {
-				return fmt.Errorf("--password, --key, --privkey, and --kms-provider are mutually exclusive")
+				return fmt.Errorf("--password, --key/--key-source, --privkey, and --kms-provider are mutually exclusive")
 			}
 
 			// Determine encryption mode from manifest.
@@ -147,7 +152,7 @@ func newDecryptCmd() *cobra.Command {
 				if bundleUsesKDF {
 					return fmt.Errorf("this bundle is password-protected; provide --password or --password-file")
 				}
-				return fmt.Errorf("--key is required (or --password / --privkey / --kms-provider)")
+				return fmt.Errorf("--key or --key-source is required (or --password / --privkey / --kms-provider)")
 			}
 
 			// Load, derive, or decapsulate key.
@@ -257,6 +262,11 @@ func newDecryptCmd() *cobra.Command {
 				key, err = crypto.DeriveKey([]byte(password), salt, kdfParams, crypto.AES256KeySize)
 				if err != nil {
 					return fmt.Errorf("derive key: %w", err)
+				}
+			} else if keySource != "" {
+				key, err = keysource.ResolveSymmetricKey(keySource)
+				if err != nil {
+					return fmt.Errorf("load key source: %w", err)
 				}
 			} else {
 				key, err = crypto.LoadKeyFile(keyFile)
@@ -402,6 +412,7 @@ func newDecryptCmd() *cobra.Command {
 	cmd.Flags().StringVar(&inFile, "in", "", "input .vpack bundle (required)")
 	cmd.Flags().StringVar(&outFile, "out", "", "output plaintext path")
 	cmd.Flags().StringVar(&keyFile, "key", "", "path to the decryption key")
+	cmd.Flags().StringVar(&keySource, "key-source", "", "key source URI (file://, env://, b64://; reserved: pkcs11://, keychain://, dpapi://, piv://)")
 	cmd.Flags().StringVar(&aadStr, "aad", "", "additional authenticated data (overrides manifest AAD)")
 	cmd.Flags().BoolVar(&useStdout, "stdout", false, "write decrypted plaintext to standard output")
 	cmd.Flags().StringVar(&password, "password", "", "decrypt with a password")

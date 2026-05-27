@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	stdcrypto "crypto"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/Skpow1234/Vaultpack/internal/cloud"
 	"github.com/Skpow1234/Vaultpack/internal/config"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
+	"github.com/Skpow1234/Vaultpack/internal/keysource"
 	"github.com/Skpow1234/Vaultpack/internal/kms"
 	"github.com/Skpow1234/Vaultpack/internal/plugin"
 	"github.com/Skpow1234/Vaultpack/internal/util"
@@ -27,11 +29,13 @@ func newProtectCmd() *cobra.Command {
 		outFile      string
 		keyOutFile   string
 		keyFile      string
+		keySource    string
 		aadStr       string
 		hashAlgo     string
 		cipherName   string
 		signFlag     bool
 		signingPriv  string
+		signingKeySource string
 		signAlgo     string
 		useStdin     bool
 		useStdout    bool
@@ -74,8 +78,11 @@ func newProtectCmd() *cobra.Command {
 			if inFile != "" && useStdin {
 				return fmt.Errorf("--in and --stdin are mutually exclusive")
 			}
-			if signFlag && signingPriv == "" {
-				return fmt.Errorf("--signing-priv is required when --sign is set")
+			if signFlag && signingPriv == "" && signingKeySource == "" {
+				return fmt.Errorf("--signing-priv or --signing-key-source is required when --sign is set")
+			}
+			if signingPriv != "" && signingKeySource != "" {
+				return fmt.Errorf("--signing-priv and --signing-key-source are mutually exclusive")
 			}
 			if !crypto.SupportedHashAlgo(hashAlgo) {
 				return fmt.Errorf("unsupported hash algorithm %q; supported: sha256, sha512, sha3-256, sha3-512, blake2b-256, blake2b-512, blake3", hashAlgo)
@@ -100,7 +107,7 @@ func newProtectCmd() *cobra.Command {
 			if usePassword {
 				keyModes++
 			}
-			if keyFile != "" {
+			if keyFile != "" || keySource != "" {
 				keyModes++
 			}
 			if useRecipient {
@@ -110,7 +117,10 @@ func newProtectCmd() *cobra.Command {
 				keyModes++
 			}
 			if keyModes > 1 {
-				return fmt.Errorf("--password, --key, --recipient, and --kms-provider/--kms-key-id are mutually exclusive")
+				return fmt.Errorf("--password, --key/--key-source, --recipient, and --kms-provider/--kms-key-id are mutually exclusive")
+			}
+			if keyFile != "" && keySource != "" {
+				return fmt.Errorf("--key and --key-source are mutually exclusive")
 			}
 
 			// Apply config defaults when flags not set (precedence: CLI > env > config).
@@ -501,6 +511,11 @@ func newProtectCmd() *cobra.Command {
 
 				// No key file output for password-based encryption.
 				keyOutFile = ""
+			} else if keySource != "" {
+				key, err = keysource.ResolveSymmetricKey(keySource)
+				if err != nil {
+					return fmt.Errorf("load key source: %w", err)
+				}
 			} else if keyFile != "" {
 				key, err = crypto.LoadKeyFile(keyFile)
 				if err != nil {
@@ -628,9 +643,24 @@ func newProtectCmd() *cobra.Command {
 			var sig []byte
 			var resolvedSignAlgo string
 			if signFlag {
-				privKey, detectedAlgo, err := crypto.LoadPrivateKey(signingPriv)
-				if err != nil {
-					return fmt.Errorf("load signing key: %w", err)
+				var (
+					privKey      stdcrypto.Signer
+					detectedAlgo string
+				)
+				if signingKeySource != "" {
+					keyBytes, err := keysource.ResolvePrivateKey(signingKeySource)
+					if err != nil {
+						return fmt.Errorf("load signing key source: %w", err)
+					}
+					privKey, detectedAlgo, err = crypto.ParsePrivateKey(keyBytes)
+					if err != nil {
+						return fmt.Errorf("parse signing key source: %w", err)
+					}
+				} else {
+					privKey, detectedAlgo, err = crypto.LoadPrivateKey(signingPriv)
+					if err != nil {
+						return fmt.Errorf("load signing key: %w", err)
+					}
 				}
 
 				resolvedSignAlgo = detectedAlgo
@@ -816,12 +846,14 @@ func newProtectCmd() *cobra.Command {
 	cmd.Flags().StringVar(&outFile, "out", "", "output .vpack path (default: <input>.vpack)")
 	cmd.Flags().StringVar(&keyOutFile, "key-out", "", "path to write the generated key (default: <input>.key)")
 	cmd.Flags().StringVar(&keyFile, "key", "", "path to an existing key (skips key generation)")
+	cmd.Flags().StringVar(&keySource, "key-source", "", "key source URI (file://, env://, b64://; reserved: pkcs11://, keychain://, dpapi://, piv://)")
 	cmd.Flags().StringVar(&aadStr, "aad", "", "additional authenticated data (e.g. 'env=prod,app=payments')")
 	cmd.Flags().StringVar(&hashAlgo, "hash-algo", "sha256", "hash algorithm for plaintext: sha256, sha512, sha3-256, sha3-512, blake2b-256, blake2b-512, blake3")
 	cmd.Flags().StringVar(&cipherName, "cipher", crypto.CipherAES256GCM, "AEAD cipher: aes-256-gcm, chacha20-poly1305, xchacha20-poly1305, aes-256-gcm-siv (nonce-misuse-resistant)")
 	cmd.Flags().IntVar(&parallelWorkers, "parallel-workers", 1, "encrypt chunks in parallel using N goroutines (0 = NumCPU, 1 = sequential)")
 	cmd.Flags().BoolVar(&signFlag, "sign", false, "sign the bundle")
 	cmd.Flags().StringVar(&signingPriv, "signing-priv", "", "path to private signing key (required with --sign)")
+	cmd.Flags().StringVar(&signingKeySource, "signing-key-source", "", "signing key source URI (file://, env://, b64://; reserved HSM/keychain schemes)")
 	cmd.Flags().StringVar(&signAlgo, "sign-algo", "", "signing algorithm (auto-detected from key if omitted)")
 	cmd.Flags().BoolVar(&useStdin, "stdin", false, "read plaintext from standard input")
 	cmd.Flags().BoolVar(&useStdout, "stdout", false, "write bundle to standard output")

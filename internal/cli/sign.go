@@ -12,6 +12,7 @@ import (
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
 	"github.com/Skpow1234/Vaultpack/internal/cloud"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
+	"github.com/Skpow1234/Vaultpack/internal/keysource"
 	"github.com/Skpow1234/Vaultpack/internal/plugin"
 	"github.com/Skpow1234/Vaultpack/internal/util"
 	"github.com/spf13/cobra"
@@ -21,6 +22,7 @@ func newSignCmd() *cobra.Command {
 	var (
 		inFile          string
 		signingPriv     string
+		signingKeySource string
 		algo            string
 		useTransparency bool
 		rekorURL        string
@@ -50,11 +52,14 @@ func newSignCmd() *cobra.Command {
 				if !useTransparency {
 					return fmt.Errorf("--keyless requires --transparency")
 				}
-				if signingPriv != "" {
-					return fmt.Errorf("--keyless cannot be combined with --signing-priv")
+				if signingPriv != "" || signingKeySource != "" {
+					return fmt.Errorf("--keyless cannot be combined with --signing-priv or --signing-key-source")
 				}
-			} else if signingPriv == "" {
-				return fmt.Errorf("--signing-priv is required (or use --keyless)")
+			} else if signingPriv == "" && signingKeySource == "" {
+				return fmt.Errorf("--signing-priv or --signing-key-source is required (or use --keyless)")
+			}
+			if signingPriv != "" && signingKeySource != "" {
+				return fmt.Errorf("--signing-priv and --signing-key-source are mutually exclusive")
 			}
 
 			// Remote input (az://, s3://, gs://): download to temp, sign locally,
@@ -116,7 +121,7 @@ func newSignCmd() *cobra.Command {
 					return fmt.Errorf("sign (keyless): %w", err)
 				}
 
-			case cmd.Flags().Changed("algo") && plugin.GlobalRegistry().SignAlgo(algo) != "":
+			case signingKeySource == "" && cmd.Flags().Changed("algo") && plugin.GlobalRegistry().SignAlgo(algo) != "":
 				signAlgo = algo
 				br.Manifest.SignatureAlgo = &signAlgo
 				ts := time.Now().UTC().Format(time.RFC3339)
@@ -137,9 +142,24 @@ func newSignCmd() *cobra.Command {
 
 			default:
 				// Load signing key (auto-detects algorithm from key format).
-				privKey, detectedAlgo, err := crypto.LoadPrivateKey(signingPriv)
-				if err != nil {
-					return fmt.Errorf("load signing key: %w", err)
+				var (
+					privKey      stdcrypto.Signer
+					detectedAlgo string
+				)
+				if signingKeySource != "" {
+					keyBytes, err := keysource.ResolvePrivateKey(signingKeySource)
+					if err != nil {
+						return fmt.Errorf("load signing key source: %w", err)
+					}
+					privKey, detectedAlgo, err = crypto.ParsePrivateKey(keyBytes)
+					if err != nil {
+						return fmt.Errorf("parse signing key source: %w", err)
+					}
+				} else {
+					privKey, detectedAlgo, err = crypto.LoadPrivateKey(signingPriv)
+					if err != nil {
+						return fmt.Errorf("load signing key: %w", err)
+					}
 				}
 				signAlgo = detectedAlgo
 				if cmd.Flags().Changed("algo") {
@@ -192,9 +212,21 @@ func newSignCmd() *cobra.Command {
 					identity = keylessSess.Identity
 					oidcIssuer = keylessSess.Issuer
 				} else {
-					signer, _, err := crypto.LoadPrivateKey(signingPriv)
-					if err != nil {
-						return fmt.Errorf("re-load signing key for rekor: %w", err)
+					var signer stdcrypto.Signer
+					if signingKeySource != "" {
+						keyBytes, err := keysource.ResolvePrivateKey(signingKeySource)
+						if err != nil {
+							return fmt.Errorf("re-load signing key source for rekor: %w", err)
+						}
+						signer, _, err = crypto.ParsePrivateKey(keyBytes)
+						if err != nil {
+							return fmt.Errorf("parse signing key source for rekor: %w", err)
+						}
+					} else {
+						signer, _, err = crypto.LoadPrivateKey(signingPriv)
+						if err != nil {
+							return fmt.Errorf("re-load signing key for rekor: %w", err)
+						}
 					}
 					pubKey = crypto.PublicKeyOf(signer)
 				}
@@ -283,7 +315,8 @@ func newSignCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&inFile, "in", "", "input .vpack bundle to sign (required)")
-	cmd.Flags().StringVar(&signingPriv, "signing-priv", "", "path to private key (required)")
+	cmd.Flags().StringVar(&signingPriv, "signing-priv", "", "path to private key (required unless --signing-key-source or --keyless)")
+	cmd.Flags().StringVar(&signingKeySource, "signing-key-source", "", "signing key source URI (file://, env://, b64://; reserved HSM/keychain schemes)")
 	cmd.Flags().StringVar(&algo, "algo", "", "signing algorithm (auto-detected from key if omitted)")
 	cmd.Flags().BoolVar(&useTransparency, "transparency", false, "upload the signature to a Sigstore Rekor transparency log")
 	cmd.Flags().StringVar(&rekorURL, "rekor-url", "", "Rekor base URL (defaults to https://rekor.sigstore.dev)")
