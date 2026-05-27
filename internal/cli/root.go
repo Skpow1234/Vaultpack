@@ -146,6 +146,8 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newPolicyCmd())
 	// M26: service mode.
 	root.AddCommand(newServeCmd())
+	// M27: tamper-evident repo.
+	root.AddCommand(newRepoCmd())
 
 	return root
 }
