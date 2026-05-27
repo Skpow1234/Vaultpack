@@ -874,6 +874,46 @@ The Merkle tree uses RFC 6962-style domain separation:
 `--verify-key` is supplied. Any modification to a historical entry, root,
 timestamp, or bundle hash causes verification to fail.
 
+## Key-Source URIs
+
+VaultPack can load symmetric keys and signing keys from URI-style sources.
+This is the stable abstraction for future HSM, smartcard, and OS keychain
+work while already supporting portable local use today.
+
+```bash
+# Symmetric key from an env var containing either "b64:<key>" or raw base64.
+export VPACK_DATA_KEY="b64:$(base64 -w0 secret.key.raw)"
+vaultpack protect --in secret.txt --out secret.vpack --key-source env://VPACK_DATA_KEY
+vaultpack decrypt --in secret.vpack --out secret.out --key-source env://VPACK_DATA_KEY
+
+# Equivalent file-source spelling.
+vaultpack decrypt --in secret.vpack --out secret.out --key-source file://secret.key
+
+# Signing key from an env var containing PEM or legacy ed25519-priv:<b64>.
+export VPACK_SIGNING_KEY="$(cat signing.key)"
+vaultpack sign --in secret.vpack --signing-key-source env://VPACK_SIGNING_KEY
+```
+
+Supported today:
+
+| Scheme      | Purpose                                      |
+|-------------|----------------------------------------------|
+| `file://`   | Load a VaultPack key file or PEM private key |
+| `env://`    | Load key material from an environment var    |
+| `b64://`    | Inline base64-encoded key material           |
+
+Reserved for platform-specific builds:
+
+| Scheme        | Planned backend                              |
+|---------------|----------------------------------------------|
+| `pkcs11://`   | PKCS#11 HSM slots / objects                  |
+| `piv://`      | PIV/YubiKey signing and decryption           |
+| `keychain://` | macOS Keychain / Linux Secret Service style  |
+| `dpapi://`    | Windows DPAPI protected local secrets        |
+
+Reserved schemes return a clear “not available in this build” error
+instead of silently falling back to files.
+
 ## Service Mode (`vaultpack serve`)
 
 `vaultpack serve` runs a long-running HTTP API exposing the SDK to remote
