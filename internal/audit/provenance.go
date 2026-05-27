@@ -10,24 +10,24 @@ import (
 
 // Provenance is a SLSA-style provenance statement for a .vpack bundle.
 type Provenance struct {
-	SchemaVersion string            `json:"schema_version"` // e.g. "v1"
-	Subject       ProvenanceSubject `json:"subject"`
-	Builder       ProvenanceBuilder `json:"builder"`
-	BuildTimestamp string          `json:"build_timestamp"` // RFC3339
-	Environment   map[string]string `json:"environment,omitempty"`
+	SchemaVersion  string            `json:"schema_version"` // e.g. "v1"
+	Subject        ProvenanceSubject `json:"subject"`
+	Builder        ProvenanceBuilder `json:"builder"`
+	BuildTimestamp string            `json:"build_timestamp"` // RFC3339
+	Environment    map[string]string `json:"environment,omitempty"`
 }
 
 type ProvenanceSubject struct {
-	BundlePath string `json:"bundle_path"`
-	Digest     string `json:"digest"`     // e.g. "sha256:hex..."
-	InputName  string `json:"input_name,omitempty"`
-	InputSize  int64  `json:"input_size,omitempty"`
+	BundlePath    string `json:"bundle_path"`
+	Digest        string `json:"digest"` // e.g. "sha256:hex..."
+	InputName     string `json:"input_name,omitempty"`
+	InputSize     int64  `json:"input_size,omitempty"`
 	PlaintextHash string `json:"plaintext_hash,omitempty"` // algo:digest from manifest
 }
 
 type ProvenanceBuilder struct {
 	ID   string `json:"id"`   // e.g. "vaultpack"
-	Name string `json:"name"`  // e.g. "VaultPack CLI"
+	Name string `json:"name"` // e.g. "VaultPack CLI"
 }
 
 // BuildProvenance creates a provenance statement for a bundle using manifest metadata and optional bundle digest.
@@ -37,11 +37,11 @@ func BuildProvenance(bundlePath, bundleDigestHex, inputName string, inputSize in
 		digest = "sha256:" + digest
 	}
 	subject := ProvenanceSubject{
-		BundlePath:     bundlePath,
-		Digest:         digest,
-		InputName:      inputName,
-		InputSize:      inputSize,
-		PlaintextHash:  "",
+		BundlePath:    bundlePath,
+		Digest:        digest,
+		InputName:     inputName,
+		InputSize:     inputSize,
+		PlaintextHash: "",
 	}
 	if plaintextHashAlgo != "" && plaintextHashB64 != "" {
 		subject.PlaintextHash = plaintextHashAlgo + ":" + plaintextHashB64

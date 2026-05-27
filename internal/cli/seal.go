@@ -10,7 +10,7 @@ import (
 
 func newSealCmd() *cobra.Command {
 	var (
-		dir    string
+		dir     string
 		rootOut string
 	)
 

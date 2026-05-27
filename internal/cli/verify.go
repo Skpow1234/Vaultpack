@@ -20,10 +20,10 @@ import (
 
 func newVerifyCmd() *cobra.Command {
 	var (
-		inFile             string
-		pubKey             string
-		checkTransparency  bool
-		rekorPubKeyFile    string
+		inFile            string
+		pubKey            string
+		checkTransparency bool
+		rekorPubKeyFile   string
 	)
 
 	cmd := &cobra.Command{

@@ -81,103 +81,103 @@ func newInspectCmd() *cobra.Command {
 				} else {
 					printer.Human("  AAD:      (none)")
 				}
-			printer.Human("  Key ID:   %s:%s", m.Encryption.KeyID.Algo, m.Encryption.KeyID.DigestB64)
-			if m.Encryption.IsChunked() {
-				printer.Human("  Chunked:  yes (%d byte chunks)", *m.Encryption.ChunkSize)
-			}
-			if m.Encryption.KDF != nil {
-				printer.Human("")
-				printer.Human("Key Derivation:")
-				printer.Human("  KDF:      %s", m.Encryption.KDF.Algo)
-				printer.Human("  Salt:     %s", m.Encryption.KDF.SaltB64)
-				switch m.Encryption.KDF.Algo {
-				case "argon2id":
-					printer.Human("  Time:     %d", m.Encryption.KDF.Time)
-					printer.Human("  Memory:   %d KiB", m.Encryption.KDF.Memory)
-					printer.Human("  Threads:  %d", m.Encryption.KDF.Threads)
-				case "scrypt":
-					printer.Human("  N:        %d", m.Encryption.KDF.N)
-					printer.Human("  r:        %d", m.Encryption.KDF.R)
-					printer.Human("  p:        %d", m.Encryption.KDF.P)
-				case "pbkdf2-sha256":
-					printer.Human("  Iter:     %d", m.Encryption.KDF.Iterations)
+				printer.Human("  Key ID:   %s:%s", m.Encryption.KeyID.Algo, m.Encryption.KeyID.DigestB64)
+				if m.Encryption.IsChunked() {
+					printer.Human("  Chunked:  yes (%d byte chunks)", *m.Encryption.ChunkSize)
 				}
-			}
-			if m.Encryption.Hybrid != nil {
-				printer.Human("")
-				printer.Human("Hybrid Encryption:")
-				printer.Human("  Scheme:   %s", m.Encryption.Hybrid.Scheme)
-				if m.Encryption.Hybrid.EphemeralPubKeyB64 != "" {
-					printer.Human("  Eph.Key:  %s", m.Encryption.Hybrid.EphemeralPubKeyB64)
-				}
-				if m.Encryption.Hybrid.WrappedDEKB64 != "" {
-					trunc := m.Encryption.Hybrid.WrappedDEKB64
-					if len(trunc) > 32 {
-						trunc = trunc[:32]
-					}
-					printer.Human("  Wrapped:  %s...", trunc)
-				}
-				if m.Encryption.Hybrid.RecipientFingerprintB64 != "" {
-					printer.Human("  Recip.FP: %s", m.Encryption.Hybrid.RecipientFingerprintB64)
-				}
-				if len(m.Encryption.Hybrid.Recipients) > 0 {
-					printer.Human("  Recipients: %d", len(m.Encryption.Hybrid.Recipients))
-					for i, r := range m.Encryption.Hybrid.Recipients {
-						printer.Human("    [%d] Scheme: %s  FP: %s", i, r.Scheme, r.FingerprintB64)
+				if m.Encryption.KDF != nil {
+					printer.Human("")
+					printer.Human("Key Derivation:")
+					printer.Human("  KDF:      %s", m.Encryption.KDF.Algo)
+					printer.Human("  Salt:     %s", m.Encryption.KDF.SaltB64)
+					switch m.Encryption.KDF.Algo {
+					case "argon2id":
+						printer.Human("  Time:     %d", m.Encryption.KDF.Time)
+						printer.Human("  Memory:   %d KiB", m.Encryption.KDF.Memory)
+						printer.Human("  Threads:  %d", m.Encryption.KDF.Threads)
+					case "scrypt":
+						printer.Human("  N:        %d", m.Encryption.KDF.N)
+						printer.Human("  r:        %d", m.Encryption.KDF.R)
+						printer.Human("  p:        %d", m.Encryption.KDF.P)
+					case "pbkdf2-sha256":
+						printer.Human("  Iter:     %d", m.Encryption.KDF.Iterations)
 					}
 				}
-			}
-			if m.Compress != nil {
-				printer.Human("")
-				printer.Human("Compression:")
-				printer.Human("  Algo:     %s", m.Compress.Algo)
-				printer.Human("  Original: %d bytes", m.Compress.OriginalSize)
-			}
-			if m.KeySplitting != nil {
-				printer.Human("")
-				printer.Human("Key Splitting:")
-				printer.Human("  Scheme:    %s", m.KeySplitting.Scheme)
-				printer.Human("  Threshold: %d-of-%d", m.KeySplitting.Threshold, m.KeySplitting.Total)
-			}
-			if m.SignatureAlgo != nil {
-				printer.Human("")
-				printer.Human("Signature:")
-				printer.Human("  Algo:     %s", *m.SignatureAlgo)
-				if m.SignedAt != nil {
-					printer.Human("  Signed:   %s", *m.SignedAt)
-				}
-			}
-			if len(m.RotatedFrom) > 0 {
-				printer.Human("")
-				printer.Human("Rotation History: %d step(s)", len(m.RotatedFrom))
-				for i, e := range m.RotatedFrom {
-					printer.Human("  [%d] %s @ %s", i, e.Operation, e.RotatedAt)
-					if e.BundleHash != "" {
-						printer.Human("      prev-bundle-sha256: %s", e.BundleHash)
+				if m.Encryption.Hybrid != nil {
+					printer.Human("")
+					printer.Human("Hybrid Encryption:")
+					printer.Human("  Scheme:   %s", m.Encryption.Hybrid.Scheme)
+					if m.Encryption.Hybrid.EphemeralPubKeyB64 != "" {
+						printer.Human("  Eph.Key:  %s", m.Encryption.Hybrid.EphemeralPubKeyB64)
 					}
-					if e.Notes != "" {
-						printer.Human("      notes: %s", e.Notes)
+					if m.Encryption.Hybrid.WrappedDEKB64 != "" {
+						trunc := m.Encryption.Hybrid.WrappedDEKB64
+						if len(trunc) > 32 {
+							trunc = trunc[:32]
+						}
+						printer.Human("  Wrapped:  %s...", trunc)
+					}
+					if m.Encryption.Hybrid.RecipientFingerprintB64 != "" {
+						printer.Human("  Recip.FP: %s", m.Encryption.Hybrid.RecipientFingerprintB64)
+					}
+					if len(m.Encryption.Hybrid.Recipients) > 0 {
+						printer.Human("  Recipients: %d", len(m.Encryption.Hybrid.Recipients))
+						for i, r := range m.Encryption.Hybrid.Recipients {
+							printer.Human("    [%d] Scheme: %s  FP: %s", i, r.Scheme, r.FingerprintB64)
+						}
 					}
 				}
-			}
-			if len(m.Transparency) > 0 {
-				printer.Human("")
-				printer.Human("Transparency: %d entry(ies)", len(m.Transparency))
-				for i, e := range m.Transparency {
-					printer.Human("  [%d] %s", i, e.LogURL)
-					printer.Human("      uuid:      %s", e.UUID)
-					printer.Human("      index:     %d", e.LogIndex)
-					if e.IntegratedTime != 0 {
-						printer.Human("      logged at: %d (unix)", e.IntegratedTime)
-					}
-					if e.Identity != "" {
-						printer.Human("      identity:  %s", e.Identity)
+				if m.Compress != nil {
+					printer.Human("")
+					printer.Human("Compression:")
+					printer.Human("  Algo:     %s", m.Compress.Algo)
+					printer.Human("  Original: %d bytes", m.Compress.OriginalSize)
+				}
+				if m.KeySplitting != nil {
+					printer.Human("")
+					printer.Human("Key Splitting:")
+					printer.Human("  Scheme:    %s", m.KeySplitting.Scheme)
+					printer.Human("  Threshold: %d-of-%d", m.KeySplitting.Threshold, m.KeySplitting.Total)
+				}
+				if m.SignatureAlgo != nil {
+					printer.Human("")
+					printer.Human("Signature:")
+					printer.Human("  Algo:     %s", *m.SignatureAlgo)
+					if m.SignedAt != nil {
+						printer.Human("  Signed:   %s", *m.SignedAt)
 					}
 				}
-			}
-			printer.Human("")
-			printer.Human("Ciphertext:")
-			printer.Human("  Size:     %d bytes", m.Ciphertext.Size)
+				if len(m.RotatedFrom) > 0 {
+					printer.Human("")
+					printer.Human("Rotation History: %d step(s)", len(m.RotatedFrom))
+					for i, e := range m.RotatedFrom {
+						printer.Human("  [%d] %s @ %s", i, e.Operation, e.RotatedAt)
+						if e.BundleHash != "" {
+							printer.Human("      prev-bundle-sha256: %s", e.BundleHash)
+						}
+						if e.Notes != "" {
+							printer.Human("      notes: %s", e.Notes)
+						}
+					}
+				}
+				if len(m.Transparency) > 0 {
+					printer.Human("")
+					printer.Human("Transparency: %d entry(ies)", len(m.Transparency))
+					for i, e := range m.Transparency {
+						printer.Human("  [%d] %s", i, e.LogURL)
+						printer.Human("      uuid:      %s", e.UUID)
+						printer.Human("      index:     %d", e.LogIndex)
+						if e.IntegratedTime != 0 {
+							printer.Human("      logged at: %d (unix)", e.IntegratedTime)
+						}
+						if e.Identity != "" {
+							printer.Human("      identity:  %s", e.Identity)
+						}
+					}
+				}
+				printer.Human("")
+				printer.Human("Ciphertext:")
+				printer.Human("  Size:     %d bytes", m.Ciphertext.Size)
 			}
 			return nil
 		},

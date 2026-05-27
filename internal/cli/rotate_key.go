@@ -27,20 +27,20 @@ import (
 // The new manifest invalidates any prior signature; re-sign with 'vaultpack sign'.
 func newRotateKeyCmd() *cobra.Command {
 	var (
-		inFile      string
-		outFile     string
+		inFile  string
+		outFile string
 
 		// Old credentials (used to recover the existing DEK).
-		oldKeyFile   string
-		oldPassword  string
+		oldKeyFile      string
+		oldPassword     string
 		oldPasswordFile string
-		oldPrivKey   string
+		oldPrivKey      string
 
 		// New credentials.
-		newKeyOutFile string
-		newPassword   string
+		newKeyOutFile   string
+		newPassword     string
 		newPasswordFile string
-		newRecipients []string
+		newRecipients   []string
 
 		// KMS rotation.
 		kmsProvider string
@@ -214,9 +214,9 @@ is preserved from the input unless overridden.`,
 			}
 
 			newM := &bundle.Manifest{
-				Version:   bundle.ManifestVersionV2,
-				Input:     br.Manifest.Input,
-				Plaintext: bundle.PlaintextHash{Algo: hashAlgo, DigestB64: util.B64Encode(digest)},
+				Version:    bundle.ManifestVersionV2,
+				Input:      br.Manifest.Input,
+				Plaintext:  bundle.PlaintextHash{Algo: hashAlgo, DigestB64: util.B64Encode(digest)},
 				Encryption: encMeta,
 				Ciphertext: bundle.CiphertextMeta{Size: streamResult.CiphertextSize},
 				Compress:   compMeta,
@@ -278,13 +278,13 @@ is preserved from the input unless overridden.`,
 			switch printer.Mode {
 			case OutputJSON:
 				return printer.JSON(map[string]any{
-					"bundle":           outFile,
-					"operation":        audit.OpRotateKey,
-					"mode":             mode,
-					"new_key_id":       newKeyDigest,
-					"old_key_id":       oldDigest,
-					"new_cipher":       cipherName,
-					"signed":           false,
+					"bundle":     outFile,
+					"operation":  audit.OpRotateKey,
+					"mode":       mode,
+					"new_key_id": newKeyDigest,
+					"old_key_id": oldDigest,
+					"new_cipher": cipherName,
+					"signed":     false,
 				})
 			default:
 				printer.Human("Rotate-key: %s", outFile)

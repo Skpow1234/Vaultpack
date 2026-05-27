@@ -25,32 +25,32 @@ import (
 
 func newProtectCmd() *cobra.Command {
 	var (
-		inFile       string
-		outFile      string
-		keyOutFile   string
-		keyFile      string
-		keySource    string
-		aadStr       string
-		hashAlgo     string
-		cipherName   string
-		signFlag     bool
-		signingPriv  string
+		inFile           string
+		outFile          string
+		keyOutFile       string
+		keyFile          string
+		keySource        string
+		aadStr           string
+		hashAlgo         string
+		cipherName       string
+		signFlag         bool
+		signingPriv      string
 		signingKeySource string
-		signAlgo     string
-		useStdin     bool
-		useStdout    bool
-		password     string
-		passwordFile string
-		kdfAlgo      string
-		kdfTime      uint32
-		kdfMemory    uint32
-		recipients      []string
-		compressAlgo    string
-		splitShares     int
-		splitThreshold  int
-		kmsProvider     string
-		kmsKeyID        string
-		parallelWorkers int
+		signAlgo         string
+		useStdin         bool
+		useStdout        bool
+		password         string
+		passwordFile     string
+		kdfAlgo          string
+		kdfTime          uint32
+		kdfMemory        uint32
+		recipients       []string
+		compressAlgo     string
+		splitShares      int
+		splitThreshold   int
+		kmsProvider      string
+		kmsKeyID         string
+		parallelWorkers  int
 	)
 
 	cmd := &cobra.Command{

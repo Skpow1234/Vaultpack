@@ -22,9 +22,9 @@ import (
 // The payload is untouched. The previous manifest signature is cleared.
 func newAddRecipientCmd() *cobra.Command {
 	var (
-		inFile       string
-		outFile      string
-		privKeyFile  string
+		inFile        string
+		outFile       string
+		privKeyFile   string
 		newRecipients []string
 	)
 
@@ -162,11 +162,11 @@ previous manifest signature is cleared; re-sign with 'vaultpack sign'.`,
 			switch printer.Mode {
 			case OutputJSON:
 				return printer.JSON(map[string]any{
-					"bundle":            outFile,
-					"operation":         audit.OpAddRecipient,
+					"bundle":             outFile,
+					"operation":          audit.OpAddRecipient,
 					"added_fingerprints": addedFPs,
-					"total_recipients":  len(recipientEntries),
-					"signed":            false,
+					"total_recipients":   len(recipientEntries),
+					"signed":             false,
 				})
 			default:
 				printer.Human("Add recipients: %s", outFile)

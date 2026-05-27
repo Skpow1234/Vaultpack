@@ -14,10 +14,10 @@ func TestFileLogger_Log(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := &Entry{
-		Operation: OpProtect,
-		InputFile: "test.txt",
+		Operation:  OpProtect,
+		InputFile:  "test.txt",
 		OutputFile: "test.vpack",
-		Success:   true,
+		Success:    true,
 	}
 	if err := logger.Log(e); err != nil {
 		t.Fatal(err)

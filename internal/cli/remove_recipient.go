@@ -126,11 +126,11 @@ The previous manifest signature is cleared; re-sign with 'vaultpack sign'.`,
 			switch printer.Mode {
 			case OutputJSON:
 				return printer.JSON(map[string]any{
-					"bundle":             outFile,
-					"operation":          audit.OpRemoveRecipient,
+					"bundle":               outFile,
+					"operation":            audit.OpRemoveRecipient,
 					"removed_fingerprints": removedFPs,
 					"remaining_recipients": len(kept),
-					"signed":             false,
+					"signed":               false,
 				})
 			default:
 				printer.Human("Remove recipients: %s", outFile)

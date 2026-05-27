@@ -18,13 +18,13 @@ const (
 
 // Config is the marshalled repo.json document.
 type Config struct {
-	Schema          int    `json:"schema"`
-	CreatedAt       string `json:"created_at"`
-	Description     string `json:"description,omitempty"`
-	SigningKeyAlgo  string `json:"signing_key_algo,omitempty"`
-	SigningKeyFP    string `json:"signing_key_fingerprint,omitempty"`
-	RekorURL        string `json:"rekor_url,omitempty"`
-	StoreBundles    bool   `json:"store_bundles"`
+	Schema         int    `json:"schema"`
+	CreatedAt      string `json:"created_at"`
+	Description    string `json:"description,omitempty"`
+	SigningKeyAlgo string `json:"signing_key_algo,omitempty"`
+	SigningKeyFP   string `json:"signing_key_fingerprint,omitempty"`
+	RekorURL       string `json:"rekor_url,omitempty"`
+	StoreBundles   bool   `json:"store_bundles"`
 }
 
 // Entry is a single appended bundle's record, persisted one-per-line in

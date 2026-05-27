@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	azuremod "github.com/Skpow1234/Vaultpack/internal/azure"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	azuremod "github.com/Skpow1234/Vaultpack/internal/azure"
 )
 
 // Azure configuration set via CLI flags or environment variables.

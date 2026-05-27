@@ -20,15 +20,15 @@ import (
 
 func newSignCmd() *cobra.Command {
 	var (
-		inFile          string
-		signingPriv     string
+		inFile           string
+		signingPriv      string
 		signingKeySource string
-		algo            string
-		useTransparency bool
-		rekorURL        string
-		keyless         bool
-		fulcioURL       string
-		oidcTokenFile   string
+		algo             string
+		useTransparency  bool
+		rekorURL         string
+		keyless          bool
+		fulcioURL        string
+		oidcTokenFile    string
 	)
 
 	cmd := &cobra.Command{

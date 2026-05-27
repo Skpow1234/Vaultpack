@@ -3,10 +3,10 @@ package cli
 import (
 	"os"
 
-	"github.com/rs/zerolog"
 	"github.com/Skpow1234/Vaultpack/internal/config"
 	"github.com/Skpow1234/Vaultpack/internal/plugin"
 	"github.com/Skpow1234/Vaultpack/internal/policy"
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 )
 
@@ -15,13 +15,13 @@ var Version = "dev"
 
 // Global flag values shared across all commands.
 var (
-	flagJSON    bool
-	flagQuiet   bool
-	flagVerbose bool
+	flagJSON     bool
+	flagQuiet    bool
+	flagVerbose  bool
 	flagAuditLog string
-	flagConfig  string
-	flagProfile string
-	flagPolicy  string
+	flagConfig   string
+	flagProfile  string
+	flagPolicy   string
 	// effectiveAuditLogPath is set in PersistentPreRun from precedence: CLI > env > config.
 	effectiveAuditLogPath string
 )

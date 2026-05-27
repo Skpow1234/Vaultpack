@@ -21,14 +21,14 @@ import (
 
 func newDecryptCmd() *cobra.Command {
 	var (
-		inFile       string
-		outFile      string
-		keyFile      string
-		keySource    string
-		aadStr       string
-		useStdout    bool
-		password     string
-		passwordFile string
+		inFile          string
+		outFile         string
+		keyFile         string
+		keySource       string
+		aadStr          string
+		useStdout       bool
+		password        string
+		passwordFile    string
 		privKeyFile     string
 		kmsProvider     string
 		parallelWorkers int

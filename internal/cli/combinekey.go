@@ -71,11 +71,11 @@ Example:
 
 			if printer.Mode == OutputJSON {
 				return printer.JSON(map[string]any{
-					"scheme":       "shamir-gf256",
-					"shares_used":  len(shares),
-					"threshold":    k,
-					"output":       outFile,
-					"key_len":      len(secret),
+					"scheme":      "shamir-gf256",
+					"shares_used": len(shares),
+					"threshold":   k,
+					"output":      outFile,
+					"key_len":     len(secret),
 				})
 			}
 

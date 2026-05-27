@@ -16,12 +16,12 @@ import (
 
 func newAttestCmd() *cobra.Command {
 	var (
-		inFile           string
-		outFile          string
-		embed            bool
-		useTransparency  bool
-		signingPriv      string
-		rekorURL         string
+		inFile          string
+		outFile         string
+		embed           bool
+		useTransparency bool
+		signingPriv     string
+		rekorURL        string
 	)
 
 	cmd := &cobra.Command{

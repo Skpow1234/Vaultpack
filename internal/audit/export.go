@@ -12,10 +12,10 @@ import (
 
 // ExportFilter filters audit entries for export.
 type ExportFilter struct {
-	Since     *time.Time // include only entries on or after
-	Until     *time.Time // include only entries before
-	Operation string     // exact operation name, or "" for all
-	KeyFingerprint string // entries with this key fingerprint (substring match), or ""
+	Since          *time.Time // include only entries on or after
+	Until          *time.Time // include only entries before
+	Operation      string     // exact operation name, or "" for all
+	KeyFingerprint string     // entries with this key fingerprint (substring match), or ""
 }
 
 // Matches returns true if e should be included.

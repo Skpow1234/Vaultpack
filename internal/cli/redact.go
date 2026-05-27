@@ -9,16 +9,16 @@ import (
 // could enable correlation (plaintext-hash fingerprinting), key identification,
 // or per-encryption material that may aid cryptanalysis.
 type RedactedManifest struct {
-	Version       string                  `json:"version"`
-	CreatedAt     string                  `json:"created_at,omitempty"`
-	Input         bundle.InputMeta        `json:"input"`
-	Plaintext     RedactedPlaintext       `json:"plaintext_hash"`
-	Encryption    RedactedEncryption      `json:"encryption"`
-	Compression   *RedactedCompression    `json:"compression,omitempty"`
-	KeySplitting  *bundle.KeySplitMeta    `json:"key_splitting,omitempty"`
-	SignatureAlgo *string                 `json:"signature_algo,omitempty"`
-	Signed        bool                    `json:"signed"`
-	Ciphertext    bundle.CiphertextMeta   `json:"ciphertext"`
+	Version       string                `json:"version"`
+	CreatedAt     string                `json:"created_at,omitempty"`
+	Input         bundle.InputMeta      `json:"input"`
+	Plaintext     RedactedPlaintext     `json:"plaintext_hash"`
+	Encryption    RedactedEncryption    `json:"encryption"`
+	Compression   *RedactedCompression  `json:"compression,omitempty"`
+	KeySplitting  *bundle.KeySplitMeta  `json:"key_splitting,omitempty"`
+	SignatureAlgo *string               `json:"signature_algo,omitempty"`
+	Signed        bool                  `json:"signed"`
+	Ciphertext    bundle.CiphertextMeta `json:"ciphertext"`
 }
 
 // RedactedPlaintext omits the digest itself (keeps only the algorithm).
@@ -28,12 +28,12 @@ type RedactedPlaintext struct {
 
 // RedactedEncryption omits nonce/tag/AAD/key id/wrapped DEK and other per-encryption values.
 type RedactedEncryption struct {
-	AEAD       string          `json:"aead"`
-	Chunked    bool            `json:"chunked"`
-	ChunkSize  *int            `json:"chunk_size,omitempty"`
-	KDF        *RedactedKDF    `json:"kdf,omitempty"`
-	Hybrid     *RedactedHybrid `json:"hybrid,omitempty"`
-	HasKMS     bool            `json:"has_kms"`
+	AEAD      string          `json:"aead"`
+	Chunked   bool            `json:"chunked"`
+	ChunkSize *int            `json:"chunk_size,omitempty"`
+	KDF       *RedactedKDF    `json:"kdf,omitempty"`
+	Hybrid    *RedactedHybrid `json:"hybrid,omitempty"`
+	HasKMS    bool            `json:"has_kms"`
 }
 
 // RedactedKDF omits the salt and other per-derivation parameters that might be sensitive.
@@ -55,9 +55,9 @@ type RedactedCompression struct {
 // Redact builds a RedactedManifest from a full Manifest.
 func Redact(m *bundle.Manifest) *RedactedManifest {
 	r := &RedactedManifest{
-		Version:    m.Version,
-		Input:      m.Input,
-		Plaintext:  RedactedPlaintext{Algo: m.Plaintext.Algo},
+		Version:   m.Version,
+		Input:     m.Input,
+		Plaintext: RedactedPlaintext{Algo: m.Plaintext.Algo},
 		Encryption: RedactedEncryption{
 			AEAD:      m.Encryption.AEAD,
 			Chunked:   m.Encryption.IsChunked(),

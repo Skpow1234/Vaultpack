@@ -2,8 +2,8 @@ package repo
 
 import (
 	"bufio"
-	"crypto/sha256"
 	stdcrypto "crypto"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"

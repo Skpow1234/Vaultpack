@@ -18,10 +18,10 @@ import (
 // identity. The caller signs the bundle with `Signer`, then uploads the
 // signature + ChainPEM to Rekor via uploadToRekor.
 type keylessSession struct {
-	Signer     *ecdsa.PrivateKey
-	ChainPEM   string
-	Identity   string
-	Issuer     string
+	Signer   *ecdsa.PrivateKey
+	ChainPEM string
+	Identity string
+	Issuer   string
 }
 
 // startKeylessSession runs the OIDC → Fulcio exchange. The OIDC token is read

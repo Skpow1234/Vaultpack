@@ -25,11 +25,11 @@ import (
 // rewrap independently of the payload; use `vaultpack rotate-key` for those.
 func newRewrapCmd() *cobra.Command {
 	var (
-		inFile        string
-		outFile       string
-		kmsProvider   string
-		fromKeyID     string
-		toKeyID       string
+		inFile      string
+		outFile     string
+		kmsProvider string
+		fromKeyID   string
+		toKeyID     string
 	)
 
 	cmd := &cobra.Command{

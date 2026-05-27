@@ -30,7 +30,7 @@ const (
 	OpCombineKey      = "combine-key"
 	OpBatchProtect    = "batch-protect"
 	OpBatchDecrypt    = "batch-decrypt"
-	OpBatchInspect   = "batch-inspect"
+	OpBatchInspect    = "batch-inspect"
 	OpAttest          = "attest"
 	OpSeal            = "seal"
 	OpVerifySeal      = "verify-seal"
@@ -43,20 +43,20 @@ const (
 
 // Entry is one JSON-lines record written to the audit log.
 type Entry struct {
-	Timestamp    string `json:"timestamp"`     // RFC3339
-	Operation    string `json:"operation"`
-	InputFile    string `json:"input_file,omitempty"`
-	OutputFile   string `json:"output_file,omitempty"`
-	BundleHash   string `json:"bundle_hash,omitempty"`   // SHA-256 of bundle or payload (hex/base64)
-	KeyFingerprint string `json:"key_fingerprint,omitempty"`
-	User         string `json:"user,omitempty"`
-	Hostname     string `json:"hostname,omitempty"`
-	Success      bool   `json:"success"`
-	Error        string `json:"error,omitempty"`
-	Extra        map[string]string `json:"extra,omitempty"`
-	PrevHash     string `json:"prev_hash,omitempty"`
-	EntryHash    string `json:"entry_hash,omitempty"`
-	OCSFClass    string `json:"ocsf_class,omitempty"`
+	Timestamp      string            `json:"timestamp"` // RFC3339
+	Operation      string            `json:"operation"`
+	InputFile      string            `json:"input_file,omitempty"`
+	OutputFile     string            `json:"output_file,omitempty"`
+	BundleHash     string            `json:"bundle_hash,omitempty"` // SHA-256 of bundle or payload (hex/base64)
+	KeyFingerprint string            `json:"key_fingerprint,omitempty"`
+	User           string            `json:"user,omitempty"`
+	Hostname       string            `json:"hostname,omitempty"`
+	Success        bool              `json:"success"`
+	Error          string            `json:"error,omitempty"`
+	Extra          map[string]string `json:"extra,omitempty"`
+	PrevHash       string            `json:"prev_hash,omitempty"`
+	EntryHash      string            `json:"entry_hash,omitempty"`
+	OCSFClass      string            `json:"ocsf_class,omitempty"`
 }
 
 // Logger writes audit entries. Safe for concurrent use.

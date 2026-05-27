@@ -18,10 +18,10 @@ import (
 
 // Provider config set via CLI flags or environment variables.
 var (
-	awsRegion       string
-	awsProfile      string
-	awsS3Endpoint   string
-	awsS3PathStyle  bool
+	awsRegion      string
+	awsProfile     string
+	awsS3Endpoint  string
+	awsS3PathStyle bool
 )
 
 // isRemoteURI returns true if path is any supported remote URI (az/s3/gs/https).

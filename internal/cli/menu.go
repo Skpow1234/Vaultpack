@@ -26,18 +26,18 @@ func newMenuCmd() *cobra.Command {
 					huh.NewOption("Hash a file", "hash"),
 					huh.NewOption("Generate signing key pair", "keygen"),
 					huh.NewOption("Sign a .vpack bundle", "sign"),
-				huh.NewOption("Verify a .vpack bundle", "verify"),
-				huh.NewOption("Verify integrity (decrypt + hash check)", "verify-integrity"),
-				huh.NewOption("Split a key into Shamir shares", "split-key"),
-				huh.NewOption("Combine Shamir shares into a key", "combine-key"),
-				huh.NewOption("Batch protect a directory", "batch-protect"),
-				huh.NewOption("Batch decrypt a directory", "batch-decrypt"),
-				huh.NewOption("Batch inspect a directory", "batch-inspect"),
-				huh.NewOption("Attest bundle (provenance)", "attest"),
-				huh.NewOption("Seal directory (Merkle root)", "seal"),
-				huh.NewOption("Verify seal", "verify-seal"),
-				huh.NewOption("Export audit log", "audit-export"),
-				huh.NewOption("Exit", "exit"),
+					huh.NewOption("Verify a .vpack bundle", "verify"),
+					huh.NewOption("Verify integrity (decrypt + hash check)", "verify-integrity"),
+					huh.NewOption("Split a key into Shamir shares", "split-key"),
+					huh.NewOption("Combine Shamir shares into a key", "combine-key"),
+					huh.NewOption("Batch protect a directory", "batch-protect"),
+					huh.NewOption("Batch decrypt a directory", "batch-decrypt"),
+					huh.NewOption("Batch inspect a directory", "batch-inspect"),
+					huh.NewOption("Attest bundle (provenance)", "attest"),
+					huh.NewOption("Seal directory (Merkle root)", "seal"),
+					huh.NewOption("Verify seal", "verify-seal"),
+					huh.NewOption("Export audit log", "audit-export"),
+					huh.NewOption("Exit", "exit"),
 				).
 				Value(&action).
 				Run()
@@ -60,31 +60,31 @@ func newMenuCmd() *cobra.Command {
 				return runSignMenu()
 			case "verify":
 				return runVerifyMenu()
-		case "verify-integrity":
-			return runVerifyIntegrityMenu()
-		case "split-key":
-			return runSplitKeyMenu()
-		case "combine-key":
-			return runCombineKeyMenu()
-		case "batch-protect":
-			return runBatchProtectMenu()
-		case "batch-decrypt":
-			return runBatchDecryptMenu()
-		case "batch-inspect":
-			return runBatchInspectMenu()
-		case "attest":
-			return runAttestMenu()
-		case "seal":
-			return runSealMenu()
-		case "verify-seal":
-			return runVerifySealMenu()
-		case "audit-export":
-			return runAuditExportMenu()
-		case "exit":
-			fmt.Println("Goodbye.")
+			case "verify-integrity":
+				return runVerifyIntegrityMenu()
+			case "split-key":
+				return runSplitKeyMenu()
+			case "combine-key":
+				return runCombineKeyMenu()
+			case "batch-protect":
+				return runBatchProtectMenu()
+			case "batch-decrypt":
+				return runBatchDecryptMenu()
+			case "batch-inspect":
+				return runBatchInspectMenu()
+			case "attest":
+				return runAttestMenu()
+			case "seal":
+				return runSealMenu()
+			case "verify-seal":
+				return runVerifySealMenu()
+			case "audit-export":
+				return runAuditExportMenu()
+			case "exit":
+				fmt.Println("Goodbye.")
+				return nil
+			}
 			return nil
-		}
-		return nil
 		},
 	}
 	return cmd
@@ -263,11 +263,11 @@ func runProtectMenu(cmd *cobra.Command) error {
 
 func runDecryptMenu(cmd *cobra.Command) error {
 	var (
-		inFile     string
-		outFile    string
-		keyMode    string
-		keyFile    string
-		password   string
+		inFile      string
+		outFile     string
+		keyMode     string
+		keyFile     string
+		password    string
 		privKeyFile string
 	)
 
@@ -498,10 +498,10 @@ func runVerifyMenu() error {
 
 func runVerifyIntegrityMenu() error {
 	var (
-		inFile  string
-		keyMode string
-		keyFile string
-		password string
+		inFile      string
+		keyMode     string
+		keyFile     string
+		password    string
 		privKeyFile string
 	)
 

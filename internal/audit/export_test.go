@@ -9,8 +9,8 @@ import (
 
 func TestExportFilter_Matches(t *testing.T) {
 	e := &Entry{
-		Timestamp:    time.Now().UTC().Format(time.RFC3339),
-		Operation:    OpProtect,
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		Operation:      OpProtect,
 		KeyFingerprint: "sha256:abc",
 	}
 	var f ExportFilter

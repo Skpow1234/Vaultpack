@@ -31,10 +31,10 @@ func TestBatchProtectDecrypt_SharedKey(t *testing.T) {
 	decDir := filepath.Join(t.TempDir(), "dec")
 
 	files := map[string]string{
-		"a.txt":           "alpha content",
-		"b.txt":           "bravo content",
-		"sub/c.txt":       "charlie in sub dir",
-		"sub/deep/d.txt":  "delta deep nested",
+		"a.txt":          "alpha content",
+		"b.txt":          "bravo content",
+		"sub/c.txt":      "charlie in sub dir",
+		"sub/deep/d.txt": "delta deep nested",
 	}
 	createTestDir(t, srcDir, files)
 
