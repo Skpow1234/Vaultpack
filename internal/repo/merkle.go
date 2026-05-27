@@ -132,37 +132,10 @@ func VerifyInclusion(leaf []byte, idx, treeSize int, proof [][]byte, root []byte
 		return errors.New("VerifyInclusion: bad root size")
 	}
 
-	// Walk leaf → root, consuming one proof hash per layer until the
-	// remaining subtree has size 1.
-	cur := append([]byte(nil), leaf...)
-	pos := idx
-	size := treeSize
 	pi := 0
-	for size > 1 {
-		k := largestPowerOfTwoLessThan(size)
-		if pos < k {
-			// `cur` is in the left subtree of size k. The sibling is the
-			// right subtree of size (size - k). We only consume a proof
-			// hash when the right subtree actually exists.
-			if size-k > 0 {
-				if pi >= len(proof) {
-					return errors.New("VerifyInclusion: proof too short")
-				}
-				cur = NodeHash(cur, proof[pi])
-				pi++
-			}
-			size = k
-		} else {
-			// `cur` is in the right subtree. The sibling is the left
-			// subtree of size k, which always exists.
-			if pi >= len(proof) {
-				return errors.New("VerifyInclusion: proof too short")
-			}
-			cur = NodeHash(proof[pi], cur)
-			pi++
-			pos -= k
-			size -= k
-		}
+	cur, err := verifyInclusionHash(leaf, idx, treeSize, proof, &pi)
+	if err != nil {
+		return err
 	}
 	if pi != len(proof) {
 		return errors.New("VerifyInclusion: proof too long")
@@ -304,6 +277,35 @@ func inclusionPath(leaves [][]byte, idx, depth int) [][]byte {
 	}
 	rest := inclusionPath(leaves[k:], idx-k, depth+1)
 	return append(rest, subtreeHash(leaves[:k]))
+}
+
+func verifyInclusionHash(leaf []byte, idx, size int, proof [][]byte, proofIndex *int) ([]byte, error) {
+	if size == 1 {
+		return append([]byte(nil), leaf...), nil
+	}
+	k := largestPowerOfTwoLessThan(size)
+	if idx < k {
+		left, err := verifyInclusionHash(leaf, idx, k, proof, proofIndex)
+		if err != nil {
+			return nil, err
+		}
+		if *proofIndex >= len(proof) {
+			return nil, errors.New("VerifyInclusion: proof too short")
+		}
+		right := proof[*proofIndex]
+		(*proofIndex)++
+		return NodeHash(left, right), nil
+	}
+	right, err := verifyInclusionHash(leaf, idx-k, size-k, proof, proofIndex)
+	if err != nil {
+		return nil, err
+	}
+	if *proofIndex >= len(proof) {
+		return nil, errors.New("VerifyInclusion: proof too short")
+	}
+	left := proof[*proofIndex]
+	(*proofIndex)++
+	return NodeHash(left, right), nil
 }
 
 func consistencyPath(leaves [][]byte, m, depth int, atRoot bool) [][]byte {
