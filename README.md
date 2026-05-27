@@ -946,6 +946,40 @@ vaultpack report --audit-log audit.jsonl --format csv  --out report.csv
 Reports include total entries, successes/failures, counts by operation,
 counts by OCSF-style class, first/last timestamp, and hash-chain status.
 
+## UX & Adoption
+
+### Doctor
+
+`vaultpack doctor` checks local runtime assumptions and prints actionable
+diagnostics:
+
+```bash
+vaultpack doctor
+vaultpack --json doctor
+```
+
+It reports runtime/OS, registered KMS providers, audit/policy environment
+variables, portable key-source availability, and reserved HSM/keychain
+scheme status.
+
+### Shell Completions
+
+Generate first-party completion scripts:
+
+```bash
+vaultpack completion bash > vaultpack.bash
+vaultpack completion zsh > _vaultpack
+vaultpack completion fish > vaultpack.fish
+vaultpack completion powershell > vaultpack.ps1
+```
+
+### Recipes
+
+Common workflows live in [`docs/recipes/`](docs/recipes/): local
+encryption, password mode, key-source URIs, transparency signing, service
+mode sidecars, tamper-evident repos, audit reports, completions, and
+doctor diagnostics.
+
 ## Service Mode (`vaultpack serve`)
 
 `vaultpack serve` runs a long-running HTTP API exposing the SDK to remote
