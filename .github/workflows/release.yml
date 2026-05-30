@@ -51,9 +51,14 @@ jobs:
         with:
           distribution: goreleaser
           version: "~> v2"
+          # Chocolatey packaging needs the `choco` executable, which only runs on
+          # Windows and is not available on the Linux runner. The chocolateys
+          # config has skip_publish: true (never pushed), so we skip the pipe
+          # here; build/publish the .nupkg from a Windows host if needed.
           args: >-
             release
             --clean
+            --skip=chocolatey
             ${{ github.event.inputs.snapshot == 'true' && '--snapshot' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
