@@ -26,12 +26,14 @@ builds:
 
 archives:
   - id: default
-    format: tar.gz
+    formats:
+      - tar.gz
     format_overrides:
       - goos: windows
-        format: zip
-    name_template: "{{ .Binary }}-{{ .Os }}-{{ .Arch }}{{ .Ext }}"
-    builds:
+        formats:
+          - zip
+    name_template: "{{ .Binary }}-{{ .Os }}-{{ .Arch }}"
+    ids:
       - vaultpack
 
 checksum:
@@ -94,24 +96,30 @@ signs:
 
 # Homebrew tap (macOS / Linux). Requires a separate `Skpow1234/homebrew-tap`
 # repository and a personal access token exposed as $HOMEBREW_TAP_GITHUB_TOKEN.
-# When the token is missing the brews step is skipped automatically by GoReleaser.
-brews:
+# When the token is missing the cask step is skipped automatically by GoReleaser.
+# (Migrated from the deprecated `brews` formula section to `homebrew_casks`.)
+homebrew_casks:
   - name: vaultpack
+    binaries:
+      - vaultpack
     repository:
       owner: Skpow1234
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/Skpow1234/Vaultpack
     description: "Encrypt, hash, and sign data into portable .vpack bundles."
-    license: MIT
     commit_author:
       name: vaultpack-release-bot
       email: actions@github.com
-    install: |
-      bin.install "vaultpack"
-    test: |
-      system "#{bin}/vaultpack", "--version"
     skip_upload: auto
+    # The release binaries are not Apple-notarized, so strip the quarantine
+    # attribute on install to avoid the "damaged and cannot be opened" error.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/vaultpack"]
+          end
 
 # Chocolatey package (Windows). Requires CHOCOLATEY_API_KEY in the environment.
 # skip_publish: true keeps the .nupkg artifact in dist/ without pushing to chocolatey.org.
