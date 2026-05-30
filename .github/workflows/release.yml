@@ -65,6 +65,10 @@ jobs:
           # COSIGN_EXPERIMENTAL=1 enables keyless signing path on older cosign
           # versions; it is the default since cosign v2.0.0 but kept here for safety.
           COSIGN_EXPERIMENTAL: "1"
+          # Token for pushing the Homebrew cask to Skpow1234/homebrew-tap.
+          # Always defined (empty when the secret is unset) so the goreleaser
+          # template resolves; an empty value makes the cask push skip cleanly.
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
 
       - name: Upload release artifacts (snapshot)
         if: github.event.inputs.snapshot == 'true'

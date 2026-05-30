@@ -111,7 +111,10 @@ homebrew_casks:
     commit_author:
       name: vaultpack-release-bot
       email: actions@github.com
-    skip_upload: auto
+    # Skip the tap push when no tap token is configured (env is always set by
+    # the workflow, possibly to an empty string). Otherwise honor `auto`, which
+    # also skips prerelease tags (e.g. v1.0.0-rc1).
+    skip_upload: '{{ if eq .Env.HOMEBREW_TAP_GITHUB_TOKEN "" }}true{{ else }}auto{{ end }}'
     # The release binaries are not Apple-notarized, so strip the quarantine
     # attribute on install to avoid the "damaged and cannot be opened" error.
     hooks:
