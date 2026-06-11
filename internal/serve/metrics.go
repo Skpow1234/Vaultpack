@@ -23,7 +23,8 @@ type Metrics struct {
 	requestSecsMu  sync.Mutex
 	requestSecHist map[string]*latencyHistogram
 
-	AuthDenied atomic.Uint64
+	AuthDenied   atomic.Uint64
+	RateLimited  atomic.Uint64
 
 	kmsRef *KMSCache // set by the server so cache stats can be exposed
 }
@@ -104,6 +105,10 @@ func (m *Metrics) write(w io.Writer) {
 	fmt.Fprintf(w, "# HELP vaultpack_auth_denied_total Requests rejected by the auth gate.\n")
 	fmt.Fprintf(w, "# TYPE vaultpack_auth_denied_total counter\n")
 	fmt.Fprintf(w, "vaultpack_auth_denied_total %d\n", m.AuthDenied.Load())
+
+	fmt.Fprintf(w, "# HELP vaultpack_rate_limited_total Requests rejected by the rate limiter.\n")
+	fmt.Fprintf(w, "# TYPE vaultpack_rate_limited_total counter\n")
+	fmt.Fprintf(w, "vaultpack_rate_limited_total %d\n", m.RateLimited.Load())
 
 	m.writeRequestsTotal(w)
 	m.writeLatencyHistograms(w)

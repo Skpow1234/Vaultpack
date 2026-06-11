@@ -3,47 +3,37 @@ package serve
 import (
 	"crypto/subtle"
 	"net/http"
-	"strings"
 )
 
 type authMiddleware struct {
-	tokenBytes []byte // empty == no token required (mTLS or AuthDisabled covers it)
+	tokenBytes []byte
+	oidc       *oidcValidator
 }
 
-func newAuthMiddleware(token string) *authMiddleware {
-	if token == "" {
-		return &authMiddleware{}
+func newAuthMiddleware(token string, oidc *oidcValidator) *authMiddleware {
+	a := &authMiddleware{oidc: oidc}
+	if token != "" {
+		a.tokenBytes = []byte(token)
 	}
-	return &authMiddleware{tokenBytes: []byte(token)}
+	return a
 }
 
 // check returns true if the request is allowed. The decision is:
 //
-//   - If a bearer token is configured, it must match exactly (in constant time).
-//   - Otherwise, we rely on mTLS (handled by the TLS layer) or
-//     AuthDisabled (the operator opted out).
-//
-// Either way, we count an attempt for the metrics layer to record.
+//   - If a bearer token is configured, it must match exactly (constant time), OR
+//     OIDC JWT validation must succeed when OIDC is configured.
+//   - If no bearer token is configured, OIDC JWT alone can authenticate.
+//   - Otherwise we rely on mTLS (handled by TLS layer) or AuthDisabled.
 func (a *authMiddleware) check(r *http.Request) bool {
-	if len(a.tokenBytes) == 0 {
-		// No bearer required — either mTLS or AuthDisabled is in force.
-		return true
-	}
 	got := bearerToken(r)
 	if got == "" {
-		return false
+		return len(a.tokenBytes) == 0 && a.oidc == nil
 	}
-	return subtle.ConstantTimeCompare([]byte(got), a.tokenBytes) == 1
-}
-
-func bearerToken(r *http.Request) string {
-	h := r.Header.Get("Authorization")
-	if h == "" {
-		return ""
+	if len(a.tokenBytes) > 0 && subtle.ConstantTimeCompare([]byte(got), a.tokenBytes) == 1 {
+		return true
 	}
-	const prefix = "Bearer "
-	if len(h) < len(prefix) || !strings.EqualFold(h[:len(prefix)], prefix) {
-		return ""
+	if a.oidc != nil && a.oidc.validate(got) == nil {
+		return true
 	}
-	return strings.TrimSpace(h[len(prefix):])
+	return len(a.tokenBytes) == 0 && a.oidc == nil
 }

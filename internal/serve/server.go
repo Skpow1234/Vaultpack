@@ -17,6 +17,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/Skpow1234/Vaultpack/internal/audit"
+	"github.com/Skpow1234/Vaultpack/internal/policy"
 )
 
 // Options configures a server. A zero value is invalid; use NewServer.
@@ -58,16 +61,33 @@ type Options struct {
 	// Protect/Decrypt embed plaintext or bundles as base64 so this is the
 	// effective per-call payload limit.
 	MaxRequestBytes int64
+
+	// PolicyFile, if set, enforces RBAC rules on every /v1/* call (same as CLI --policy).
+	PolicyFile string
+
+	// AuditLogFile, if set, appends tamper-evident JSON-lines audit records.
+	AuditLogFile string
+
+	// RateLimitRPS limits requests per client IP (0 = disabled).
+	RateLimitRPS float64
+	// RateLimitBurst is the token bucket burst size (default: RPS+1).
+	RateLimitBurst int
+
+	// OIDC enables JWT bearer auth validated against an IdP JWKS.
+	OIDC OIDCOptions
 }
 
 // Server is a configured but not-yet-started HTTP service.
 type Server struct {
-	opts    Options
-	mux     *http.ServeMux
-	httpSrv *http.Server
-	kms     *KMSCache
-	metrics *Metrics
-	auth    *authMiddleware
+	opts      Options
+	mux       *http.ServeMux
+	httpSrv   *http.Server
+	kms       *KMSCache
+	metrics   *Metrics
+	auth      *authMiddleware
+	policy    policy.Evaluator
+	audit     audit.Logger
+	rateLimit *rateLimiter
 }
 
 // NewServer validates Options and returns a Server ready to call ListenAndServe.
@@ -75,8 +95,9 @@ func NewServer(opts Options) (*Server, error) {
 	if opts.Listen == "" {
 		return nil, errors.New("serve: Listen is required")
 	}
-	if opts.AuthToken == "" && opts.TLSClientCAFile == "" && !opts.AuthDisabled {
-		return nil, errors.New("serve: refusing to start with no authentication; pass --auth-token, --tls-client-ca, or --auth-disabled")
+	oidcEnabled := opts.OIDC.Issuer != "" || opts.OIDC.JWKSURL != ""
+	if opts.AuthToken == "" && opts.TLSClientCAFile == "" && !opts.AuthDisabled && !oidcEnabled {
+		return nil, errors.New("serve: refusing to start with no authentication; pass --auth-token, --tls-client-ca, --oidc-issuer, or --auth-disabled")
 	}
 	if opts.ReadTimeout == 0 {
 		opts.ReadTimeout = 30 * time.Second
@@ -218,9 +239,9 @@ func (s *Server) tlsConfig() (*tls.Config, error) {
 }
 
 // middleware composes the standard request pipeline: panic recovery,
-// metrics, auth, max-body cap.
+// metrics, rate limit, max-body cap, auth.
 func (s *Server) middleware(next http.Handler) http.Handler {
-	return s.recover(s.metricsMW(s.maxBody(s.authGate(next))))
+	return s.recover(s.metricsMW(s.rateLimitMW(s.maxBody(s.authGate(next)))))
 }
 
 func (s *Server) recover(next http.Handler) http.Handler {
