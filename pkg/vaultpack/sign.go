@@ -1,11 +1,8 @@
 package vaultpack
 
 import (
-	stdcrypto "crypto"
-)
-
-type stdSigner = stdcrypto.Signer
 	"bytes"
+	stdcrypto "crypto"
 	"errors"
 	"fmt"
 	"time"
@@ -13,6 +10,8 @@ type stdSigner = stdcrypto.Signer
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
 	"github.com/Skpow1234/Vaultpack/internal/crypto"
 )
+
+type stdSigner = stdcrypto.Signer
 
 // SignOptions controls a single Sign call.
 //
