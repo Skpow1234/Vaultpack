@@ -26,6 +26,13 @@ func newServeCmd() *cobra.Command {
 		readTimeout     time.Duration
 		writeTimeout    time.Duration
 		maxRequestBytes int64
+		policyFile      string
+		auditLogFile    string
+		rateLimitRPS    float64
+		rateLimitBurst  int
+		oidcIssuer      string
+		oidcAudience    string
+		oidcJWKSURL     string
 	)
 
 	cmd := &cobra.Command{
@@ -42,14 +49,18 @@ Endpoints (all under /v1):
   POST /v1/inspect       Decode manifest
   POST /v1/sign          Add/replace detached signature
   POST /v1/verify        Verify detached signature
+  POST /v1/rewrap        Re-wrap KMS DEK (rotation)
 
 Operational endpoints (always reachable, no auth):
   GET  /healthz          Liveness probe
   GET  /metrics          Prometheus exposition
 
-Authentication: provide --auth-token, --tls-client-ca (mTLS), or both.
-Pass --auth-disabled only for local development; the server otherwise
-refuses to start without any auth configured.
+Authentication: provide --auth-token, --tls-client-ca (mTLS), OIDC JWT
+(--oidc-issuer + --oidc-audience), or both. Pass --auth-disabled only for
+local development; the server otherwise refuses to start without any auth.
+
+Policy and audit: pass --policy and --audit-log to enforce the same RBAC
+rules and tamper-evident logging as the CLI on every /v1/* call.
 
 Examples:
   vaultpack serve --listen :8443 --auth-token "$(cat token.txt)" \
@@ -80,6 +91,15 @@ Examples:
 				ReadTimeout:     readTimeout,
 				WriteTimeout:    writeTimeout,
 				MaxRequestBytes: maxRequestBytes,
+				PolicyFile:      policyFile,
+				AuditLogFile:    auditLogFile,
+				RateLimitRPS:    rateLimitRPS,
+				RateLimitBurst:  rateLimitBurst,
+				OIDC: serve.OIDCOptions{
+					Issuer:   oidcIssuer,
+					Audience: oidcAudience,
+					JWKSURL:  oidcJWKSURL,
+				},
 			})
 			if err != nil {
 				return err
@@ -115,6 +135,13 @@ Examples:
 	cmd.Flags().DurationVar(&readTimeout, "read-timeout", 30*time.Second, "HTTP read timeout")
 	cmd.Flags().DurationVar(&writeTimeout, "write-timeout", 30*time.Second, "HTTP write timeout")
 	cmd.Flags().Int64Var(&maxRequestBytes, "max-request-bytes", 64<<20, "Maximum request body size in bytes")
+	cmd.Flags().StringVar(&policyFile, "policy", "", "Policy file (YAML/JSON/Rego) enforced on every /v1/* call")
+	cmd.Flags().StringVar(&auditLogFile, "audit-log", "", "Append-only audit log file for /v1/* operations")
+	cmd.Flags().Float64Var(&rateLimitRPS, "rate-limit-rps", 0, "Per-IP request rate limit (requests/sec; 0 = disabled)")
+	cmd.Flags().IntVar(&rateLimitBurst, "rate-limit-burst", 0, "Rate limit burst size (default: rps+1)")
+	cmd.Flags().StringVar(&oidcIssuer, "oidc-issuer", "", "OIDC issuer URL for JWT bearer auth")
+	cmd.Flags().StringVar(&oidcAudience, "oidc-audience", "", "Expected JWT audience claim for OIDC auth")
+	cmd.Flags().StringVar(&oidcJWKSURL, "oidc-jwks-url", "", "JWKS URL (optional; derived from issuer when empty)")
 
 	return cmd
 }

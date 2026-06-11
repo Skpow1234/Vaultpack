@@ -116,12 +116,37 @@ func NewServer(opts Options) (*Server, error) {
 	}
 
 	s := &Server{
-		opts:    opts,
-		mux:     http.NewServeMux(),
-		kms:     NewKMSCache(opts.KMSCacheTTL, opts.KMSCacheMaxSize),
-		metrics: NewMetrics(),
+		opts:      opts,
+		mux:       http.NewServeMux(),
+		kms:       NewKMSCache(opts.KMSCacheTTL, opts.KMSCacheMaxSize),
+		metrics:   NewMetrics(),
+		rateLimit: newRateLimiter(opts.RateLimitRPS, opts.RateLimitBurst),
 	}
-	s.auth = newAuthMiddleware(opts.AuthToken)
+	if opts.PolicyFile != "" {
+		ev, err := policy.Load(opts.PolicyFile)
+		if err != nil {
+			return nil, fmt.Errorf("serve: load policy: %w", err)
+		}
+		s.policy = ev
+	}
+	if opts.AuditLogFile != "" {
+		l, err := audit.NewFileLogger(opts.AuditLogFile)
+		if err != nil {
+			return nil, fmt.Errorf("serve: audit log: %w", err)
+		}
+		s.audit = l
+	} else {
+		s.audit = &audit.NopLogger{}
+	}
+	var oidcVal *oidcValidator
+	if oidcEnabled {
+		var err error
+		oidcVal, err = newOIDCValidator(opts.OIDC)
+		if err != nil {
+			return nil, err
+		}
+	}
+	s.auth = newAuthMiddleware(opts.AuthToken, oidcVal)
 
 	s.registerRoutes()
 	s.httpSrv = &http.Server{
