@@ -96,7 +96,7 @@ func (m *Metrics) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (m *Metrics) write(w io.Writer) {
 	fmt.Fprintf(w, "# HELP vaultpack_build_info Build info; the constant 1 with a version label.\n")
 	fmt.Fprintf(w, "# TYPE vaultpack_build_info gauge\n")
-	fmt.Fprintf(w, "vaultpack_build_info{version=%q} 1\n", "0.1.0")
+	fmt.Fprintf(w, "vaultpack_build_info{version=%q} 1\n", "1.0.0")
 
 	fmt.Fprintf(w, "# HELP vaultpack_uptime_seconds Server uptime in seconds.\n")
 	fmt.Fprintf(w, "# TYPE vaultpack_uptime_seconds counter\n")

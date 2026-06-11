@@ -11,6 +11,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -425,6 +427,59 @@ func TestMalformedJSON(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "invalid JSON") {
 		t.Errorf("expected invalid JSON error, got %s", body)
+	}
+}
+
+func TestProtect_Compression(t *testing.T) {
+	base, stop := startServer(t, serve.Options{AuthDisabled: true})
+	defer stop()
+
+	enc := postJSON(t, base+"/v1/protect", "", map[string]any{
+		"plaintext_b64": util.B64Encode(bytes.Repeat([]byte("compressible "), 50)),
+		"compress":      "gzip",
+	})
+	if enc["ok"] != true {
+		t.Fatalf("protect failed: %v", enc)
+	}
+	bundleB64, _ := enc["bundle_b64"].(string)
+	keyB64, _ := enc["generated_key_b64"].(string)
+	dec := postJSON(t, base+"/v1/decrypt", "", map[string]any{
+		"bundle_b64": bundleB64,
+		"key_b64":    keyB64,
+	})
+	if dec["ok"] != true {
+		t.Fatalf("decrypt failed: %v", dec)
+	}
+}
+
+func TestPolicyDeny_Protect(t *testing.T) {
+	dir := t.TempDir()
+	policyPath := filepath.Join(dir, "deny.yaml")
+	if err := os.WriteFile(policyPath, []byte(`version: 1
+default: allow
+rules:
+  - name: deny-protect
+    action: deny
+    reason: protect blocked
+    when:
+      operation: [protect]
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	base, stop := startServer(t, serve.Options{
+		AuthDisabled: true,
+		PolicyFile:   policyPath,
+	})
+	defer stop()
+
+	resp := postJSON(t, base+"/v1/protect", "", map[string]any{
+		"plaintext_b64": util.B64Encode([]byte("nope")),
+	})
+	if resp["_status"] != 403 {
+		t.Fatalf("expected 403, got %v", resp)
+	}
+	if resp["ok"] != false {
+		t.Fatalf("expected ok=false: %v", resp)
 	}
 }
 

@@ -356,8 +356,18 @@ func TestDecrypt_ErrorPaths(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing file")
 	}
-	_, err = vaultpack.Decrypt(vaultpack.DecryptOptions{InputPath: "x"})
-	if err == nil || !strings.Contains(err.Error(), "Key or Password") {
+	dir := t.TempDir()
+	bundlePath := filepath.Join(dir, "k.vpack")
+	res, err := vaultpack.Protect(vaultpack.ProtectOptions{
+		Plaintext:  []byte("x"),
+		OutputPath: bundlePath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res
+	_, err = vaultpack.Decrypt(vaultpack.DecryptOptions{InputPath: bundlePath})
+	if err == nil || !strings.Contains(err.Error(), "Key") {
 		t.Fatalf("expected no-key error, got %v", err)
 	}
 }
