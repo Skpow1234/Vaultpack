@@ -124,8 +124,60 @@ homebrew_casks:
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/vaultpack"]
           end
 
+# Scoop bucket (Windows). Requires a separate `Skpow1234/scoop-bucket` repository
+# and $SCOOP_BUCKET_GITHUB_TOKEN (PAT with contents:write on the bucket).
+scoops:
+  - name: vaultpack
+    description: "Encrypt, hash, and sign data into portable .vpack bundles."
+    homepage: https://github.com/Skpow1234/Vaultpack
+    license: MIT
+    repository:
+      owner: Skpow1234
+      name: scoop-bucket
+      token: "{{ .Env.SCOOP_BUCKET_GITHUB_TOKEN }}"
+    commit_author:
+      name: vaultpack-release-bot
+      email: actions@github.com
+    skip_upload: '{{ if eq .Env.SCOOP_BUCKET_GITHUB_TOKEN "" }}true{{ else }}auto{{ end }}'
+
+# Winget (Windows). Fork microsoft/winget-pkgs, then set $WINGET_PUBLISH_TOKEN
+# (PAT with repo scope). GoReleaser opens a PR to the community catalog.
+winget:
+  - name: vaultpack
+    publisher: Skpow1234
+    package_identifier: Skpow1234.Vaultpack
+    short_description: "Encrypt, hash, and sign data into portable .vpack bundles."
+    license: MIT
+    homepage: https://github.com/Skpow1234/Vaultpack
+    license_url: https://github.com/Skpow1234/Vaultpack/blob/main/LICENSE
+    publisher_url: https://github.com/Skpow1234
+    publisher_support_url: https://github.com/Skpow1234/Vaultpack/issues
+    copyright: Skpow1234
+    release_notes_url: "https://github.com/Skpow1234/Vaultpack/releases/tag/v{{ .Version }}"
+    tags:
+      - encryption
+      - signing
+      - cli
+      - security
+    repository:
+      owner: Skpow1234
+      name: winget-pkgs
+      branch: "vaultpack-{{ .Version }}"
+      token: "{{ .Env.WINGET_PUBLISH_TOKEN }}"
+      pull_request:
+        enabled: true
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master
+    commit_author:
+      name: vaultpack-release-bot
+      email: actions@github.com
+    skip_upload: '{{ if eq .Env.WINGET_PUBLISH_TOKEN "" }}true{{ else }}auto{{ end }}'
+
 # Chocolatey package (Windows). Requires CHOCOLATEY_API_KEY in the environment.
-# skip_publish: true keeps the .nupkg artifact in dist/ without pushing to chocolatey.org.
+# Built on a Windows runner (choco is not available on Linux). When the API key is
+# empty the .nupkg is generated but not pushed to chocolatey.org.
 chocolateys:
   - name: vaultpack
     title: VaultPack
@@ -146,7 +198,7 @@ chocolateys:
     tags: "encryption signing aead post-quantum kms cli"
     api_key: "{{ .Env.CHOCOLATEY_API_KEY }}"
     source_repo: "https://push.chocolatey.org/"
-    skip_publish: true
+    skip_publish: '{{ if eq .Env.CHOCOLATEY_API_KEY "" }}true{{ else }}false{{ end }}'
 
 # Linux packages (apt/deb, rpm, apk). nfpms generates the artifacts directly;
 # publishing to a hosted apt/yum repo (e.g. Cloudsmith) is configured below

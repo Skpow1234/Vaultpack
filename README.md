@@ -157,10 +157,17 @@ sudo mv vaultpack /usr/local/bin/
 ### Package managers
 
 ```bash
-# Homebrew (macOS / Linux) — once the tap is published
+# Homebrew (macOS / Linux) — after tap is set up
 brew install Skpow1234/tap/vaultpack
 
-# Chocolatey (Windows) — once the package is published
+# Scoop (Windows) — after bucket is set up
+scoop bucket add vaultpack https://github.com/Skpow1234/scoop-bucket
+scoop install vaultpack
+
+# Winget (Windows) — after PR is merged into microsoft/winget-pkgs
+winget install Skpow1234.Vaultpack
+
+# Chocolatey (Windows) — after package is approved on chocolatey.org
 choco install vaultpack
 
 # Debian / Ubuntu (.deb) and Red Hat / Fedora (.rpm) — direct download
@@ -176,6 +183,16 @@ sudo apk add --allow-untrusted vaultpack_<version>_linux_amd64.apk
 ```
 
 > `.deb` / `.rpm` / `.apk` artifacts are produced by [`nfpm`](https://nfpm.goreleaser.com/) inside the goreleaser pipeline. A hosted apt/yum repository (Cloudsmith) can be enabled by setting `CLOUDSMITH_API_KEY` in the release workflow secrets.
+
+#### Maintainer setup (Scoop / Winget / Chocolatey)
+
+| Channel | One-time setup | GitHub secret | User install command |
+|---------|----------------|---------------|----------------------|
+| **Scoop** | Create public repo `Skpow1234/scoop-bucket` (empty bucket) | `SCOOP_BUCKET_GITHUB_TOKEN` — PAT with `contents:write` on the bucket | `scoop bucket add vaultpack https://github.com/Skpow1234/scoop-bucket` then `scoop install vaultpack` |
+| **Winget** | Fork [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) to your account | `WINGET_PUBLISH_TOKEN` — PAT with `repo` scope | `winget install Skpow1234.Vaultpack` (after community PR is merged) |
+| **Chocolatey** | Register at [chocolatey.org](https://community.chocolatey.org/), submit first package for moderation | `CHOCOLATEY_API_KEY` — from your Chocolatey account | `choco install vaultpack` |
+
+On each release tag, GoReleaser updates the Scoop manifest and opens a Winget PR automatically (when secrets are set). Chocolatey is built on a Windows CI job; with an API key it pushes to chocolatey.org, otherwise the `.nupkg` is attached to the GitHub release for manual submission.
 
 ### Verify checksums
 

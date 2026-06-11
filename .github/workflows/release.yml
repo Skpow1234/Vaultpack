@@ -26,6 +26,8 @@ jobs:
   goreleaser:
     name: GoReleaser (cosign-signed)
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,15 +48,16 @@ jobs:
       - name: Verify cosign
         run: cosign version
 
+      - name: Resolve release version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: "~> v2"
-          # Chocolatey packaging needs the `choco` executable, which only runs on
-          # Windows and is not available on the Linux runner. The chocolateys
-          # config has skip_publish: true (never pushed), so we skip the pipe
-          # here; build/publish the .nupkg from a Windows host if needed.
+          # Chocolatey needs the `choco` CLI (Windows only); see the chocolatey job.
           args: >-
             release
             --clean
@@ -65,10 +68,12 @@ jobs:
           # COSIGN_EXPERIMENTAL=1 enables keyless signing path on older cosign
           # versions; it is the default since cosign v2.0.0 but kept here for safety.
           COSIGN_EXPERIMENTAL: "1"
-          # Token for pushing the Homebrew cask to Skpow1234/homebrew-tap.
-          # Always defined (empty when the secret is unset) so the goreleaser
-          # template resolves; an empty value makes the cask push skip cleanly.
+          # Tokens for package-manager publishing. Always defined (empty when a
+          # secret is unset) so goreleaser templates resolve; empty values skip
+          # the corresponding publish step without failing the release.
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          SCOOP_BUCKET_GITHUB_TOKEN: ${{ secrets.SCOOP_BUCKET_GITHUB_TOKEN }}
+          WINGET_PUBLISH_TOKEN: ${{ secrets.WINGET_PUBLISH_TOKEN }}
 
       - name: Upload release artifacts (snapshot)
         if: github.event.inputs.snapshot == 'true'
@@ -82,3 +87,46 @@ jobs:
             dist/*.pem
             dist/*.sbom.json
             dist/checksums-sha256.txt
+
+  # Chocolatey needs the `choco` CLI, which only runs on Windows.
+  chocolatey:
+    name: Chocolatey package
+    needs: goreleaser
+    if: github.event.inputs.snapshot != 'true'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.10"
+
+      - name: Run GoReleaser (chocolatey only)
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: >-
+            release
+            --clean
+            --skip=announce,publish,homebrew,scoop,winget,cloudsmith,sbom,sign
+        env:
+          GOTOOLCHAIN: local
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
+
+      - name: Upload .nupkg to GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          nupkg=$(find dist -name '*.nupkg' -print -quit)
+          if [ -z "$nupkg" ]; then
+            echo "no .nupkg found in dist/"
+            exit 1
+          fi
+          gh release upload "v${{ needs.goreleaser.outputs.version }}" "$nupkg" --clobber
