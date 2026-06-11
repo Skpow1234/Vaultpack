@@ -1,6 +1,10 @@
 package vaultpack
 
 import (
+	stdcrypto "crypto"
+)
+
+type stdSigner = stdcrypto.Signer
 	"bytes"
 	"errors"
 	"fmt"

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 
 	"github.com/Skpow1234/Vaultpack/internal/bundle"
@@ -319,5 +318,3 @@ func CombineShares(shares [][]byte) ([]byte, error) {
 	}
 	return secret, nil
 }
-
-// Unused import guard for io in decrypt - actually io not used, remove from decrypt imports - I didn't import io in decrypt.go, good.
