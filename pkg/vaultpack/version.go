@@ -6,4 +6,4 @@ package vaultpack
 // version (which is set at link time via -ldflags). The two move
 // independently — adding a CLI flag does not require an SDK bump if no
 // exported identifier is touched.
-const Version = "0.1.0"
+const Version = "1.0.0"

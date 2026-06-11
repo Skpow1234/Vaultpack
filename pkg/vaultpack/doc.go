@@ -41,15 +41,16 @@
 //	if err != nil { panic(err) }
 //	_ = dec
 //
-// # Supported modes (v0.1)
+// # Supported modes (v1.0)
 //
 //   - Symmetric key file (generated or supplied).
 //   - Password-based (PBKDF: argon2id, scrypt, pbkdf2-sha256).
+//   - Hybrid / multi-recipient encryption (PEM public keys).
+//   - KMS-wrapped DEKs (aws, gcp, azure, mock providers).
+//   - Pre-encryption compression (gzip, zstd).
+//   - Shamir key splitting (K-of-N shares via SplitShares / CombineShares).
 //   - Detached signatures (ed25519 / ecdsa / rsa-pss / ml-dsa / slh-dsa).
+//   - Sigstore Rekor transparency upload and verification helpers.
+//   - SLSA-style provenance embedding (provenance.json).
 //   - Bundle inspection (manifest decoding).
-//
-// Hybrid (recipient) encryption, KMS wrapping, key splitting, compression,
-// transparency-log uploads, and provenance attestation are not yet exposed
-// through the SDK — use the `vaultpack` CLI for those flows. They will be
-// added in future minor versions.
 package vaultpack
