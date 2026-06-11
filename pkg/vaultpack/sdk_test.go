@@ -371,3 +371,130 @@ func TestVersion(t *testing.T) {
 		t.Fatalf("Version must be semver, got %q", vaultpack.Version)
 	}
 }
+
+func TestProtectDecrypt_Compression_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	bundlePath := filepath.Join(dir, "gzip.vpack")
+	plaintext := bytes.Repeat([]byte("compressible payload "), 100)
+
+	res, err := vaultpack.Protect(vaultpack.ProtectOptions{
+		Plaintext:  plaintext,
+		OutputPath: bundlePath,
+		Compress:   "gzip",
+	})
+	if err != nil {
+		t.Fatalf("Protect: %v", err)
+	}
+
+	dec, err := vaultpack.Decrypt(vaultpack.DecryptOptions{
+		InputPath: bundlePath,
+		Key:       res.GeneratedKey,
+	})
+	if err != nil {
+		t.Fatalf("Decrypt: %v", err)
+	}
+	if !bytes.Equal(dec.Plaintext, plaintext) {
+		t.Fatal("plaintext mismatch after compression round-trip")
+	}
+}
+
+func TestProtectDecrypt_KMS_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	bundlePath := filepath.Join(dir, "kms.vpack")
+	plaintext := []byte("kms-wrapped dek")
+
+	_, err := vaultpack.Protect(vaultpack.ProtectOptions{
+		Plaintext:   plaintext,
+		OutputPath:  bundlePath,
+		KMSProvider: "mock",
+		KMSKeyID:    "mock-key-id",
+	})
+	if err != nil {
+		t.Fatalf("Protect: %v", err)
+	}
+
+	dec, err := vaultpack.Decrypt(vaultpack.DecryptOptions{
+		InputPath:   bundlePath,
+		KMSProvider: "mock",
+	})
+	if err != nil {
+		t.Fatalf("Decrypt: %v", err)
+	}
+	if !bytes.Equal(dec.Plaintext, plaintext) {
+		t.Fatal("plaintext mismatch after KMS round-trip")
+	}
+}
+
+func TestProtectDecrypt_SplitShares_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	bundlePath := filepath.Join(dir, "split.vpack")
+	plaintext := []byte("shamir split key material")
+
+	res, err := vaultpack.Protect(vaultpack.ProtectOptions{
+		Plaintext:      plaintext,
+		OutputPath:     bundlePath,
+		SplitShares:    5,
+		SplitThreshold: 3,
+	})
+	if err != nil {
+		t.Fatalf("Protect: %v", err)
+	}
+	if len(res.Shares) != 5 {
+		t.Fatalf("expected 5 shares, got %d", len(res.Shares))
+	}
+
+	rawShares := [][]byte{res.Shares[0].Data, res.Shares[2].Data, res.Shares[4].Data}
+	key, err := vaultpack.CombineShares(rawShares)
+	if err != nil {
+		t.Fatalf("CombineShares: %v", err)
+	}
+
+	dec, err := vaultpack.Decrypt(vaultpack.DecryptOptions{
+		InputPath: bundlePath,
+		Key:       key,
+	})
+	if err != nil {
+		t.Fatalf("Decrypt: %v", err)
+	}
+	if !bytes.Equal(dec.Plaintext, plaintext) {
+		t.Fatal("plaintext mismatch after split-share round-trip")
+	}
+}
+
+func TestRewrap_KMS(t *testing.T) {
+	dir := t.TempDir()
+	bundlePath := filepath.Join(dir, "rewrap.vpack")
+	outPath := filepath.Join(dir, "rewrap-out.vpack")
+
+	_, err := vaultpack.Protect(vaultpack.ProtectOptions{
+		Plaintext:   []byte("rewrap me"),
+		OutputPath:  bundlePath,
+		KMSProvider: "mock",
+		KMSKeyID:    "mock-key-id",
+	})
+	if err != nil {
+		t.Fatalf("Protect: %v", err)
+	}
+
+	_, err = vaultpack.Rewrap(vaultpack.RewrapOptions{
+		InputPath:   bundlePath,
+		OutputPath:  outPath,
+		KMSProvider: "mock",
+		FromKeyID:   "mock-key-id",
+		ToKeyID:     "mock-key-id",
+	})
+	if err != nil {
+		t.Fatalf("Rewrap: %v", err)
+	}
+
+	dec, err := vaultpack.Decrypt(vaultpack.DecryptOptions{
+		InputPath:   outPath,
+		KMSProvider: "mock",
+	})
+	if err != nil {
+		t.Fatalf("Decrypt after rewrap: %v", err)
+	}
+	if string(dec.Plaintext) != "rewrap me" {
+		t.Fatalf("plaintext = %q", dec.Plaintext)
+	}
+}

@@ -3,6 +3,7 @@ package serve
 import (
 	"crypto/subtle"
 	"net/http"
+	"strings"
 )
 
 type authMiddleware struct {
@@ -36,4 +37,16 @@ func (a *authMiddleware) check(r *http.Request) bool {
 		return true
 	}
 	return len(a.tokenBytes) == 0 && a.oidc == nil
+}
+
+func bearerToken(r *http.Request) string {
+	h := r.Header.Get("Authorization")
+	if h == "" {
+		return ""
+	}
+	const prefix = "Bearer "
+	if len(h) < len(prefix) || !strings.EqualFold(h[:len(prefix)], prefix) {
+		return ""
+	}
+	return strings.TrimSpace(h[len(prefix):])
 }

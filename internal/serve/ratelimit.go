@@ -4,7 +4,6 @@ import (
 	"net"
 	"net/http"
 	"sync"
-	"time"
 
 	"golang.org/x/time/rate"
 )
