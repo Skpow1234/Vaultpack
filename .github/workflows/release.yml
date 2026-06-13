@@ -37,7 +37,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25.10"
+          go-version: "1.25.11"
 
       - name: Install syft (SBOM generation)
         uses: anchore/sbom-action/download-syft@v0
@@ -103,7 +103,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25.10"
+          go-version: "1.25.11"
 
       - name: Run GoReleaser (chocolatey only)
         uses: goreleaser/goreleaser-action@v6

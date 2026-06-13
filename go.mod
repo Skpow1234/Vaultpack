@@ -4,7 +4,7 @@ go 1.25.0
 
 // Pin the toolchain to the patched stdlib version that resolves the Go
 // vulnerabilities tracked in CI (govulncheck). Bump as new patch releases ship.
-toolchain go1.25.10
+toolchain go1.25.11
 
 require (
 	cloud.google.com/go/kms v1.26.0
